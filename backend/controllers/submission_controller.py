@@ -4,8 +4,10 @@ from sqlalchemy.future import select
 from datetime import datetime
 
 from database import get_db
-from models import CampaignSubmission, CampaignSubmissionStatus
-from models import Campaign
+from models import Campaign, CampaignApplication
+from models import CampaignSubmission, CampaignSubmissionStatus, Creator
+from models.application import ApplicationStatus
+from typing import List
 from schemas import CampaignSubmissionCreate, CampaignSubmissionReview, CampaignSubmissionMetricsUpdate, CampaignSubmissionResponse
 
 router = APIRouter(prefix="/api/submissions", tags=["submissions"])
@@ -22,6 +24,17 @@ async def review_submission(
 
     if not submission:
         raise HTTPException(status_code=404, detail="Zgłoszenie nie istnieje")
+
+    campaign = await db.get(Campaign, submission.campaign_id)
+    if not campaign or campaign.company_id != review.company_id:
+        raise HTTPException(status_code=403, detail="Nie możesz oceniać tego materiału")
+
+    if review.status not in (
+        CampaignSubmissionStatus.APPROVED,
+        CampaignSubmissionStatus.REJECTED,
+        CampaignSubmissionStatus.REVISION_REQUESTED,
+    ):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy status decyzji")
 
     submission.status = review.status
     submission.feedback = review.feedback
@@ -91,8 +104,59 @@ async def create_submission(
     submission_data: CampaignSubmissionCreate, 
     db: AsyncSession = Depends(get_db)
 ):
+    campaign = await db.get(Campaign, submission_data.campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Kampania nie istnieje")
+
+    creator = await db.get(Creator, submission_data.creator_id)
+    if not creator:
+        raise HTTPException(status_code=404, detail="Twórca nie istnieje")
+
+    application_result = await db.execute(
+        select(CampaignApplication).where(
+            CampaignApplication.campaign_id == submission_data.campaign_id,
+            CampaignApplication.creator_id == submission_data.creator_id,
+            CampaignApplication.status == ApplicationStatus.ACCEPTED,
+        )
+    )
+    if not application_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=403,
+            detail="Możesz wysłać materiał dopiero po zaakceptowaniu aplikacji przez firmę",
+        )
+
+    existing_result = await db.execute(
+        select(CampaignSubmission).where(
+            CampaignSubmission.campaign_id == submission_data.campaign_id,
+            CampaignSubmission.creator_id == submission_data.creator_id,
+            CampaignSubmission.video_url == submission_data.video_url,
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Ten materiał został już wysłany")
+
     new_submission = CampaignSubmission(**submission_data.model_dump())
     db.add(new_submission)
     await db.commit()
     await db.refresh(new_submission)
     return new_submission
+
+
+@router.get("/campaign/{campaign_id}", response_model=List[CampaignSubmissionResponse])
+async def get_campaign_submissions(
+    campaign_id: int,
+    company_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Kampania nie istnieje")
+    if campaign.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do materiałów tej kampanii")
+
+    result = await db.execute(
+        select(CampaignSubmission)
+        .where(CampaignSubmission.campaign_id == campaign_id)
+        .order_by(CampaignSubmission.created_at.desc())
+    )
+    return result.scalars().all()

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { uploadImages } from '../../utils/uploadImage'
 
 const emit = defineEmits(['campaign-created'])
 
@@ -7,6 +8,10 @@ const loading = ref(false)
 const successMessage = ref('')
 const errorMessage = ref('')
 const companies = ref([])
+const coverFile = ref(null)
+const galleryFiles = ref([])
+const coverPreview = ref('')
+const galleryPreviews = ref([])
 
 // Pobieranie listy firm z backendu
 const fetchCompanies = async () => {
@@ -30,6 +35,8 @@ const form = reactive({
   title: '',
   description: '',
   is_private: false,
+  cover_image_url: '',
+  gallery_image_urls_str: '',
 
   // Opis i materiały
   product_description: '',
@@ -58,33 +65,38 @@ const handleSubmit = async () => {
   successMessage.value = ''
   errorMessage.value = ''
 
-  const payload = {
-    company_id: parseInt(form.company_id),
-    title: form.title,
-    description: form.description || null,
-    is_private: form.is_private,
-
-    product_description: form.product_description || null,
-    press_kit_url: form.press_kit_url || null,
-    brand_guidelines: form.brand_guidelines || null,
-
-    total_budget: parseFloat(form.total_budget),
-    budget_per_creator: form.budget_per_creator ? parseFloat(form.budget_per_creator) : null,
-
-    languages: form.languages_str.split(',').map(l => l.trim().toUpperCase()).filter(Boolean),
-    min_views: parseInt(form.min_views) || 0,
-    min_subscribers: parseInt(form.min_subscribers) || 0,
-    max_videos_per_creator: form.max_videos_per_creator ? parseInt(form.max_videos_per_creator) : null,
-
-    payout_by_content_type: {
-      Short: form.short_payout ? parseFloat(form.short_payout) : 0,
-      LongVideo: form.long_payout ? parseFloat(form.long_payout) : 0
-    },
-    payout_per_views: form.payout_per_views ? parseFloat(form.payout_per_views) : null,
-    payout_per_click: form.payout_per_click ? parseFloat(form.payout_per_click) : null
-  }
-
   try {
+    const uploadedCover = coverFile.value ? (await uploadImages([coverFile.value]))[0] : form.cover_image_url
+    const uploadedGallery = galleryFiles.value.length ? await uploadImages(galleryFiles.value) : []
+
+    const payload = {
+      company_id: parseInt(form.company_id),
+      title: form.title,
+      description: form.description || null,
+      is_private: form.is_private,
+      cover_image_url: uploadedCover || null,
+      gallery_image_urls: [...form.gallery_image_urls_str.split(',').map(url => url.trim()).filter(Boolean), ...uploadedGallery],
+
+      product_description: form.product_description || null,
+      press_kit_url: form.press_kit_url || null,
+      brand_guidelines: form.brand_guidelines || null,
+
+      total_budget: parseFloat(form.total_budget),
+      budget_per_creator: form.budget_per_creator ? parseFloat(form.budget_per_creator) : null,
+
+      languages: form.languages_str.split(',').map(l => l.trim().toUpperCase()).filter(Boolean),
+      min_views: parseInt(form.min_views) || 0,
+      min_subscribers: parseInt(form.min_subscribers) || 0,
+      max_videos_per_creator: form.max_videos_per_creator ? parseInt(form.max_videos_per_creator) : null,
+
+      payout_by_content_type: {
+        Short: form.short_payout ? parseFloat(form.short_payout) : 0,
+        LongVideo: form.long_payout ? parseFloat(form.long_payout) : 0
+      },
+      payout_per_views: form.payout_per_views ? parseFloat(form.payout_per_views) : null,
+      payout_per_click: form.payout_per_click ? parseFloat(form.payout_per_click) : null
+    }
+
     const response = await fetch('http://localhost:8000/api/campaigns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -94,7 +106,10 @@ const handleSubmit = async () => {
     const data = await response.json()
 
     if (!response.ok) {
-      throw new Error(data.detail || 'Błąd podczas tworzenia kampanii')
+      const details = Array.isArray(data.detail)
+        ? data.detail.map(item => `${item.loc?.at(-1) || 'Pole'}: ${item.msg}`).join('; ')
+        : data.detail
+      throw new Error(details || 'Błąd podczas tworzenia kampanii')
     }
 
     successMessage.value = `Kampania "${data.title}" została pomyślnie utworzona!`
@@ -105,6 +120,8 @@ const handleSubmit = async () => {
       title: '',
       description: '',
       is_private: false,
+      cover_image_url: '',
+      gallery_image_urls_str: '',
       product_description: '',
       press_kit_url: '',
       brand_guidelines: '',
@@ -119,6 +136,10 @@ const handleSubmit = async () => {
       payout_per_views: null,
       payout_per_click: null
     })
+    coverFile.value = null
+    galleryFiles.value = []
+    coverPreview.value = ''
+    galleryPreviews.value = []
 
     // Emitowanie zdarzenia do rodzica (np. App.vue)
     emit('campaign-created', data)
@@ -127,6 +148,24 @@ const handleSubmit = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleCoverSelected = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  coverFile.value = file
+  coverPreview.value = URL.createObjectURL(file)
+}
+
+const handleGallerySelected = (event) => {
+  const selectedFiles = Array.from(event.target.files)
+  if (selectedFiles.length > 20) {
+    errorMessage.value = 'Możesz wybrać maksymalnie 20 obrazów do galerii.'
+  } else {
+    errorMessage.value = ''
+  }
+  galleryFiles.value = selectedFiles.slice(0, 20)
+  galleryPreviews.value = galleryFiles.value.map(file => URL.createObjectURL(file))
 }
 </script>
 
@@ -169,6 +208,27 @@ const handleSubmit = async () => {
             Kampania prywatna (tylko dla zaproszonych twórców)
           </label>
         </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Obraz tytułowy z komputera</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" @change="handleCoverSelected" />
+            <img v-if="coverPreview" class="image-preview" :src="coverPreview" alt="Podgląd obrazu tytułowego" />
+            <label>Lub wklej URL</label>
+            <input v-model="form.cover_image_url" type="url" placeholder="https://.../cover.jpg" />
+          </div>
+
+          <div class="form-group">
+            <label>Galeria z komputera</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple @change="handleGallerySelected" />
+            <small>Możesz wybrać do 20 obrazów jednocześnie.</small>
+            <div v-if="galleryPreviews.length" class="image-preview-grid">
+              <img v-for="preview in galleryPreviews" :key="preview" class="image-preview" :src="preview" alt="Podgląd obrazu galerii" />
+            </div>
+            <label>Lub wklej URL-e po przecinku</label>
+            <input v-model="form.gallery_image_urls_str" type="text" placeholder="https://.../1.jpg, https://.../2.jpg" />
+          </div>
+        </div>
       </fieldset>
 
       <!-- Sekcja 2: Materiały i Opis Produktu -->
@@ -200,12 +260,12 @@ const handleSubmit = async () => {
         <div class="grid-2">
           <div class="form-group">
             <label>Całkowity budżet (PLN) *</label>
-            <input v-model="form.total_budget" type="number" step="0.01" min="0" placeholder="10000.00" required />
+            <input v-model="form.total_budget" type="number" step="0.01" min="0" max="9999999999.99" placeholder="10000.00" required />
           </div>
 
           <div class="form-group">
             <label>Budżet na 1 twórcę (PLN)</label>
-            <input v-model="form.budget_per_creator" type="number" step="0.01" min="0" placeholder="1500.00" />
+            <input v-model="form.budget_per_creator" type="number" step="0.01" min="0" max="99999999.99" placeholder="1500.00" />
           </div>
         </div>
 
@@ -251,12 +311,12 @@ const handleSubmit = async () => {
         <div class="grid-2">
           <div class="form-group">
             <label>Stawka za 1000 wyświetleń (CPM PLN)</label>
-            <input v-model="form.payout_per_views" type="number" step="0.01" min="0" placeholder="15.00" />
+            <input v-model="form.payout_per_views" type="number" step="0.01" min="0" max="99999999.99" placeholder="15.00" />
           </div>
 
           <div class="form-group">
             <label>Stawka za kliknięcie w link (CPC PLN)</label>
-            <input v-model="form.payout_per_click" type="number" step="0.01" min="0" placeholder="1.50" />
+            <input v-model="form.payout_per_click" type="number" step="0.01" min="0" max="99999999.99" placeholder="1.50" />
           </div>
         </div>
       </fieldset>
@@ -269,136 +329,3 @@ const handleSubmit = async () => {
   </div>
 </template>
 
-<style scoped>
-.campaign-container {
-  max-width: 800px;
-  margin: 2rem auto;
-  padding: 2rem;
-  background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  font-family: system-ui, -apple-system, sans-serif;
-}
-
-h2 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  color: #2d3748;
-}
-
-.campaign-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-fieldset {
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-legend {
-  font-weight: 600;
-  color: #4a5568;
-  padding: 0 0.5rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.form-group label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #4a5568;
-}
-
-input[type="text"],
-input[type="number"],
-input[type="url"],
-select,
-textarea {
-  padding: 0.6rem;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
-  font-size: 0.95rem;
-  background-color: #fff;
-  transition: border-color 0.2s;
-}
-
-input:focus, select:focus, textarea:focus {
-  outline: none;
-  border-color: #3182ce;
-}
-
-.checkbox-group label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-}
-
-.grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-.grid-3 {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 1rem;
-}
-
-.btn-submit {
-  padding: 0.8rem 1.5rem;
-  background-color: #3182ce;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.btn-submit:hover:not(:disabled) {
-  background-color: #2b6cb0;
-}
-
-.btn-submit:disabled {
-  background-color: #a0aec0;
-  cursor: not-allowed;
-}
-
-.alert {
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-}
-
-.alert-success {
-  background-color: #c6f6d5;
-  color: #22543d;
-  border: 1px solid #9ae6b4;
-}
-
-.alert-danger {
-  background-color: #fed7d7;
-  color: #742a2a;
-  border: 1px solid #feb2b2;
-}
-
-@media (max-width: 600px) {
-  .grid-2, .grid-3 {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

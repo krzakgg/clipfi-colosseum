@@ -11,6 +11,8 @@ class Campaign(Base):
     description = Column(Text, nullable=True)
     completed = Column(Boolean, default=False)
     is_private = Column(Boolean, default=False)  # Zamknięta kampania (tylko dla zaproszonych)
+    cover_image_url = Column(String(1000), nullable=True)
+    gallery_image_urls = Column(JSON, nullable=True)
 
     # --- Klucz Obcy i Relacja z Firmą ---
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
@@ -19,6 +21,7 @@ class Campaign(Base):
     # --- Relacje do Aplikacji i Zgłoszeń Materiałów ---
     applications = relationship("CampaignApplication", back_populates="campaign", cascade="all, delete-orphan")
     submissions = relationship("CampaignSubmission", back_populates="campaign", cascade="all, delete-orphan")
+    ref_links = relationship("CampaignRefLink", back_populates="campaign", cascade="all, delete-orphan")
 
     # --- Informacje o produkcie i wytyczne ---
     product_description = Column(Text, nullable=True)

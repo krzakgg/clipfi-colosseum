@@ -16,6 +16,7 @@ class ApplicationCreate(BaseModel):
 class ApplicationStatusUpdate(BaseModel):
     status: ApplicationStatus  # ACCEPTED lub REJECTED
     feedback: Optional[str] = None
+    company_id: int
 
 # Odpowiedź z API
 class ApplicationResponse(BaseModel):

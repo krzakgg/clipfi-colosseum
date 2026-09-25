@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue'
+import { uploadImages } from '../../utils/uploadImage'
 
 const props = defineProps({
   campaignId: {
@@ -13,6 +14,10 @@ const fetching = ref(false)
 const successMessage = ref('')
 const errorMessage = ref('')
 const companies = ref([])
+const coverFile = ref(null)
+const galleryFiles = ref([])
+const coverPreview = ref('')
+const galleryPreviews = ref([])
 
 const fetchCompanies = async () => {
   try {
@@ -28,6 +33,8 @@ const form = reactive({
   title: '',
   description: '',
   is_private: false,
+  cover_image_url: '',
+  gallery_image_urls_str: '',
   product_description: '',
   press_kit_url: '',
   brand_guidelines: '',
@@ -58,6 +65,8 @@ const loadCampaign = async () => {
     form.title = data.title || ''
     form.description = data.description || ''
     form.is_private = data.is_private || false
+    form.cover_image_url = data.cover_image_url || ''
+    form.gallery_image_urls_str = data.gallery_image_urls ? data.gallery_image_urls.join(', ') : ''
     form.product_description = data.product_description || ''
     form.press_kit_url = data.press_kit_url || ''
     form.brand_guidelines = data.brand_guidelines || ''
@@ -93,11 +102,16 @@ const handleUpdate = async () => {
   successMessage.value = ''
   errorMessage.value = ''
 
-  const payload = {
+  try {
+    const uploadedCover = coverFile.value ? (await uploadImages([coverFile.value]))[0] : form.cover_image_url
+    const uploadedGallery = galleryFiles.value.length ? await uploadImages(galleryFiles.value) : []
+    const payload = {
     company_id: parseInt(form.company_id),
     title: form.title,
     description: form.description || null,
     is_private: form.is_private,
+    cover_image_url: uploadedCover || null,
+    gallery_image_urls: [...form.gallery_image_urls_str.split(',').map(url => url.trim()).filter(Boolean), ...uploadedGallery],
     product_description: form.product_description || null,
     press_kit_url: form.press_kit_url || null,
     brand_guidelines: form.brand_guidelines || null,
@@ -113,24 +127,51 @@ const handleUpdate = async () => {
     },
     payout_per_views: form.payout_per_views ? parseFloat(form.payout_per_views) : null,
     payout_per_click: form.payout_per_click ? parseFloat(form.payout_per_click) : null
-  }
+    }
 
-  try {
     const response = await fetch(`http://localhost:8000/api/campaigns/${props.campaignId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
 
-    if (!response.ok) throw new Error('Błąd podczas edycji kampanii')
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      const details = Array.isArray(data.detail)
+        ? data.detail.map(item => `${item.loc?.at(-1) || 'Pole'}: ${item.msg}`).join('; ')
+        : data.detail
+      throw new Error(details || 'Błąd podczas edycji kampanii')
+    }
 
     const data = await response.json()
     successMessage.value = `Kampania "${data.title}" została zaktualizowana!`
+    coverFile.value = null
+    galleryFiles.value = []
+    coverPreview.value = ''
+    galleryPreviews.value = []
   } catch (err) {
     errorMessage.value = err.message
   } finally {
     loading.value = false
   }
+}
+
+const handleCoverSelected = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  coverFile.value = file
+  coverPreview.value = URL.createObjectURL(file)
+}
+
+const handleGallerySelected = (event) => {
+  const selectedFiles = Array.from(event.target.files)
+  if (selectedFiles.length > 20) {
+    errorMessage.value = 'Możesz wybrać maksymalnie 20 obrazów do galerii.'
+  } else {
+    errorMessage.value = ''
+  }
+  galleryFiles.value = selectedFiles.slice(0, 20)
+  galleryPreviews.value = galleryFiles.value.map(file => URL.createObjectURL(file))
 }
 </script>
 
@@ -166,6 +207,25 @@ const handleUpdate = async () => {
             <label>Opis kampanii</label>
             <textarea v-model="form.description" rows="3"></textarea>
           </div>
+
+          <div class="form-group">
+            <label>Obraz tytułowy z komputera</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" @change="handleCoverSelected" />
+            <img v-if="coverPreview" class="image-preview" :src="coverPreview" alt="Podgląd nowego obrazu tytułowego" />
+            <label>Lub wklej URL</label>
+            <input v-model="form.cover_image_url" type="url" placeholder="https://.../cover.jpg" />
+          </div>
+
+          <div class="form-group">
+            <label>Galeria z komputera</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple @change="handleGallerySelected" />
+            <small>Możesz wybrać do 20 obrazów jednocześnie.</small>
+            <div v-if="galleryPreviews.length" class="image-preview-grid">
+              <img v-for="preview in galleryPreviews" :key="preview" class="image-preview" :src="preview" alt="Podgląd nowego obrazu galerii" />
+            </div>
+            <label>Lub wklej URL-e po przecinku</label>
+            <input v-model="form.gallery_image_urls_str" type="text" placeholder="https://.../1.jpg, https://.../2.jpg" />
+          </div>
         </fieldset>
 
         <fieldset>
@@ -173,11 +233,11 @@ const handleUpdate = async () => {
           <div class="grid-2">
             <div class="form-group">
               <label>Całkowity budżet (PLN)</label>
-              <input v-model="form.total_budget" type="number" step="0.01" required />
+              <input v-model="form.total_budget" type="number" step="0.01" min="0" max="9999999999.99" required />
             </div>
             <div class="form-group">
               <label>Budżet na twórcę (PLN)</label>
-              <input v-model="form.budget_per_creator" type="number" step="0.01" />
+              <input v-model="form.budget_per_creator" type="number" step="0.01" min="0" max="99999999.99" />
             </div>
           </div>
         </fieldset>
@@ -190,23 +250,3 @@ const handleUpdate = async () => {
   </div>
 </template>
 
-<style scoped>
-.edit-container {
-  max-width: 800px;
-  margin: 2rem auto;
-  padding: 1.5rem;
-  background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  font-family: system-ui, sans-serif;
-}
-fieldset { border: 1px solid #e2e8f0; padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
-.form-group { display: flex; flex-direction: column; margin-bottom: 0.8rem; }
-.form-group label { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.2rem; }
-input, textarea { padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.btn-submit { width: 100%; padding: 0.75rem; background: #2b6cb0; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-.alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
-.alert-success { background: #c6f6d5; color: #22543d; }
-.alert-danger { background: #fed7d7; color: #742a2a; }
-</style>

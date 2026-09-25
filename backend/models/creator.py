@@ -9,6 +9,7 @@ class Creator(Base):
     username = Column(String(100), unique=True, index=True, nullable=False)
     full_name = Column(String(255), nullable=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = Column(String(256), nullable=True)
     avatar_url = Column(String(500), nullable=True)
     bio = Column(Text, nullable=True)
 
@@ -28,3 +29,4 @@ class Creator(Base):
     # --- Relacje ---
     applications = relationship("CampaignApplication", back_populates="creator", cascade="all, delete-orphan")
     submissions = relationship("CampaignSubmission", back_populates="creator", cascade="all, delete-orphan")
+    ref_links = relationship("CampaignRefLink", back_populates="creator", cascade="all, delete-orphan")

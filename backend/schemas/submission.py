@@ -7,12 +7,14 @@ from models import CampaignSubmissionStatus, CampaignPayoutStatus
 # 1. Twórca zgłasza wideo
 class CampaignSubmissionCreate(BaseModel):
     campaign_id: int
+    creator_id: int
     video_url: str
     platform: str
     content_type: str
 
 # 2. Firma akceptuje/odrzuca materiał
 class CampaignSubmissionReview(BaseModel):
+    company_id: int
     status: CampaignSubmissionStatus
     feedback: Optional[str] = None
 

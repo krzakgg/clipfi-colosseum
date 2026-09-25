@@ -3,7 +3,7 @@ import { ref, reactive } from 'vue'
 
 const props = defineProps({
   campaignId: { type: Number, required: true },
-  creatorId: { type: Number, default: 1 } // ID aktualnie zalogowanego twórcy
+  creatorId: { type: Number, required: true }
 })
 
 const loading = ref(false)
@@ -94,21 +94,3 @@ const submitApplication = async () => {
   </div>
 </template>
 
-<style scoped>
-.apply-box {
-  background: #ffffff;
-  padding: 1.5rem;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  max-width: 600px;
-  margin: 1rem auto;
-  font-family: system-ui, sans-serif;
-}
-.form-group { display: flex; flex-direction: column; margin-bottom: 1rem; }
-.form-group label { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.3rem; }
-input, select, textarea { padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 4px; }
-.btn-submit { padding: 0.75rem; background: #38a169; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-.alert { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
-.alert-success { background: #c6f6d5; color: #22543d; }
-.alert-danger { background: #fed7d7; color: #742a2a; }
-</style>

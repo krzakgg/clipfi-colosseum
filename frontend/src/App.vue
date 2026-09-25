@@ -3,10 +3,14 @@ import { ref } from 'vue'
 import CampaignList from './views/Campaign/CampaignList.vue'
 import CreateCampaign from './views/Campaign/CreateCampaign.vue'
 import EditCampaign from './views/Campaign/EditCampaign.vue'
+import CampaignDetails from './views/Campaign/CampaignDetails.vue'
 import TestSeeder from './views/Campaign/TestSeeder.vue'
+import Login from './views/Auth/Login.vue'
 
-const currentTab = ref('list') // Ustawiamy widok listy jako domyślny
+const session = ref(JSON.parse(localStorage.getItem('waggi_session') || 'null'))
+const currentTab = ref('list')
 const editCampaignId = ref(null)
+const detailsCampaignId = ref(null)
 
 // Reakcja na kliknięcie "Edytuj" w tabeli
 const handleEditCampaign = (id) => {
@@ -18,11 +22,37 @@ const handleEditCampaign = (id) => {
 const handleCampaignCreated = () => {
   currentTab.value = 'list'
 }
+
+const handleViewCampaign = (id) => {
+  detailsCampaignId.value = id
+  currentTab.value = 'details'
+}
+
+const handleDetailsEdit = (id) => {
+  editCampaignId.value = id
+  currentTab.value = 'edit'
+}
+
+const handleLoggedIn = (data) => {
+  session.value = data
+  currentTab.value = 'list'
+}
+
+const logout = () => {
+  localStorage.removeItem('waggi_session')
+  session.value = null
+}
 </script>
 
 <template>
-  <div class="app-layout">
+  <Login v-if="!session" @logged-in="handleLoggedIn" />
+
+  <div v-else class="app-layout">
     <nav class="nav-bar">
+      <span class="session-label">
+        {{ session.account_type === 'company' ? session.user.name : (session.user.full_name || session.user.username) }}
+        <small>{{ session.account_type === 'company' ? 'Firma' : 'Twórca' }}</small>
+      </span>
       <button 
         :class="{ active: currentTab === 'list' }" 
         @click="currentTab = 'list'"
@@ -47,6 +77,7 @@ const handleCampaignCreated = () => {
       >
         ⚙️ Dane Testowe
       </button>
+      <button class="logout-button" @click="logout">Wyloguj</button>
     </nav>
 
     <main>
@@ -55,7 +86,16 @@ const handleCampaignCreated = () => {
       <CampaignList 
         v-if="currentTab === 'list'" 
         @edit-campaign="handleEditCampaign"
+        @view-campaign="handleViewCampaign"
         @create-new="currentTab = 'create'"
+      />
+
+      <CampaignDetails
+        v-else-if="currentTab === 'details'"
+        :campaign-id="detailsCampaignId"
+        :session="session"
+        @back="currentTab = 'list'"
+        @edit-campaign="handleDetailsEdit"
       />
 
       <CreateCampaign 
@@ -76,38 +116,3 @@ const handleCampaignCreated = () => {
   </div>
 </template>
 
-<style scoped>
-.app-layout { font-family: system-ui, sans-serif; background: #f7fafc; min-height: 100vh; }
-.nav-bar {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-  padding: 1rem;
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-}
-.nav-bar button {
-  padding: 0.5rem 1rem;
-  border: 1px solid #cbd5e0;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.nav-bar button.active {
-  background: #3182ce;
-  color: white;
-  border-color: #3182ce;
-}
-.selector-bar {
-  max-width: 800px;
-  margin: 1rem auto 0;
-  text-align: center;
-  font-size: 0.9rem;
-}
-.selector-bar input {
-  padding: 0.4rem;
-  width: 80px;
-  margin-left: 0.5rem;
-}
-</style>

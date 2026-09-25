@@ -24,7 +24,8 @@ const createTestCompany = async () => {
     logo_url: 'https://via.placeholder.com/150',
     description: 'Innowacyjna firma technologiczna tworząca akcesoria gamingowe.',
     industry: 'Gaming & Tech',
-    tax_id: `PL${Math.floor(1000000000 + Math.random() * 9000000000)}`
+    tax_id: `PL${Math.floor(1000000000 + Math.random() * 9000000000)}`,
+    password: 'Test1234!'
   }
 
   try {
@@ -65,6 +66,7 @@ const createTestCreator = async () => {
     bio: 'Twórca wideo technologicznych i recenzent sprzętu.',
     languages: ['PL', 'EN'],
     categories: ['Gaming', 'Tech'],
+    password: 'Test1234!',
     platform_stats: {
       youtube: { channel_id: 'UC_test_123', subscribers: 25000, avg_views: 8500 },
       tiktok: { handle: `@creator_${randomId}`, followers: 120000, avg_views: 35000 }
@@ -139,98 +141,3 @@ const createTestCreator = async () => {
   </div>
 </template>
 
-<style scoped>
-.seeder-container {
-  max-width: 800px;
-  margin: 2rem auto;
-  padding: 1.5rem;
-  font-family: system-ui, sans-serif;
-}
-
-.cards-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-top: 1.5rem;
-}
-
-.card {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: #ffffff;
-  display: flex;
-  flex-direction: column;
-}
-
-.card p {
-  color: #4a5568;
-  font-size: 0.9rem;
-}
-
-.btn {
-  width: 100%;
-  padding: 0.6rem;
-  background-color: #3182ce;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-  margin-top: auto;
-  transition: background-color 0.2s;
-}
-
-.btn:hover:not(:disabled) {
-  background-color: #2b6cb0;
-}
-
-.btn:disabled {
-  background-color: #a0aec0;
-  cursor: not-allowed;
-}
-
-.btn-green { 
-  background-color: #38a169; 
-}
-
-.btn-green:hover:not(:disabled) {
-  background-color: #2f855a;
-}
-
-.result-box {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  background: #f7fafc;
-  border: 1px solid #edf2f7;
-  border-radius: 6px;
-  font-size: 0.85rem;
-}
-
-.result-box p {
-  margin: 0.25rem 0;
-  color: #2d3748;
-}
-
-.success-tag {
-  color: #2f855a !important;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.alert-danger {
-  padding: 0.75rem;
-  background-color: #fed7d7;
-  color: #742a2a;
-  border: 1px solid #feb2b2;
-  border-radius: 6px;
-  margin-top: 1rem;
-  font-size: 0.9rem;
-}
-
-@media (max-width: 600px) {
-  .cards-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

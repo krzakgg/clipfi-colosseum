@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -12,7 +12,7 @@ class CompanyBase(BaseModel):
     tax_id: Optional[str] = None
 
 class CompanyCreate(CompanyBase):
-    pass
+    password: str = Field(min_length=8)
 
 class CompanyResponse(CompanyBase):
     id: int
