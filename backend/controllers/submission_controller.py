@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 
 from database import get_db
 from models import Campaign, CampaignApplication
@@ -68,32 +69,18 @@ async def update_metrics(
     if submission.status != CampaignSubmissionStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Można aktualizować statystyki tylko dla zaakceptowanych wideo")
 
-    # Aktualizacja liczników
     submission.views_count = metrics.views_count
-    submission.clicks_count = metrics.clicks_count
-    submission.last_metrics_update = datetime.utcnow()
+    submission.last_metrics_update = datetime.now(timezone.utc)
 
-    # --- KALKULACJA WYPŁATY ---
-    total = 0.0
-
-    # 1. Stawka za typ treści (np. Short vs Long)
-    if campaign.payout_by_content_type and submission.content_type in campaign.payout_by_content_type:
-        total += float(campaign.payout_by_content_type[submission.content_type])
-
-    # 2. Wyświetlenia (CPM) - np. stawka X za każde 1000 wyświetleń
+    payout = Decimal("0")
+    rates = campaign.payout_by_content_type or {}
+    if submission.content_type in rates:
+        payout += Decimal(str(rates[submission.content_type]))
     if campaign.payout_per_views and campaign.views_unit_step:
-        units = submission.views_count // campaign.views_unit_step
-        total += units * float(campaign.payout_per_views)
-
-    # 3. Kliknięcia (CPC)
-    if campaign.payout_per_click:
-        total += submission.clicks_count * float(campaign.payout_per_click)
-
-    # Weryfikacja z górnym limitem budżetu na twórcę w danej kampanii
-    if campaign.budget_per_creator and total > float(campaign.budget_per_creator):
-        total = float(campaign.budget_per_creator)
-
-    submission.calculated_payout = total
+        payout += (submission.views_count // campaign.views_unit_step) * campaign.payout_per_views
+    if campaign.budget_per_creator:
+        payout = min(payout, campaign.budget_per_creator)
+    submission.calculated_payout = payout.quantize(Decimal("0.01"))
 
     await db.commit()
     await db.refresh(submission)

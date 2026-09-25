@@ -1,3 +1,6 @@
+include:
+  - tracking-service/docker-compose.yml
+
 services:
   postgres_db:
     image: postgres:16-alpine
@@ -25,9 +28,17 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres_password@postgres_db:5432/postgres
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres_password@postgres_db:5432/postgres
+      TRACKING_INTERNAL_URL: http://api-internal:8000
+      TRACKING_REDIRECT_BASE: http://localhost:8080/r
+      TRACKING_SERVICE_TOKEN: ${TRACKING_SERVICE_TOKEN:?set TRACKING_SERVICE_TOKEN in .env, the same value as in tracking-service/.env}
+    networks:
+      - default
+      - services
     depends_on:
       postgres_db:
+        condition: service_healthy
+      api-internal:
         condition: service_healthy
 
   frontend:
