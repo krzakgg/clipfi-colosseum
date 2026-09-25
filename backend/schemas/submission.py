@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from decimal import Decimal
 from datetime import datetime
@@ -20,8 +20,9 @@ class CampaignSubmissionReview(BaseModel):
 
 # 3. Aktualizacja statystyk i przeliczenie kwoty do wypłaty
 class CampaignSubmissionMetricsUpdate(BaseModel):
-    views_count: int
-    clicks_count: int
+    model_config = ConfigDict(extra="forbid")
+
+    views_count: int = Field(ge=0)
 
 # 4. Zmiana statusu wypłaty
 class CampaignSubmissionPayoutUpdate(BaseModel):
@@ -39,7 +40,6 @@ class CampaignSubmissionResponse(BaseModel):
     status: CampaignSubmissionStatus
     feedback: Optional[str]
     views_count: int
-    clicks_count: int
     payout_status: CampaignPayoutStatus
     calculated_payout: Decimal
     paid_amount: Optional[Decimal]

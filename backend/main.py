@@ -10,6 +10,8 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
 
 from database import Base, engine
+from settings import get_settings
+from tracking_client import TrackingClient
 from controllers import (
     application_router,
     campaign_router,
@@ -64,25 +66,6 @@ async def lifespan(app: FastAPI):
                     "gallery_image_urls JSON"
                 ))
                 await conn.execute(text(
-                    "ALTER TABLE campaign_ref_links ADD COLUMN IF NOT EXISTS "
-                    "code VARCHAR(32)"
-                ))
-                await conn.execute(text(
-                    "UPDATE campaign_ref_links SET code = substring(md5(random()::text || "
-                    "clock_timestamp()::text) FROM 1 FOR 12) WHERE code IS NULL"
-                ))
-                await conn.execute(text(
-                    "ALTER TABLE campaign_ref_links ALTER COLUMN code SET NOT NULL"
-                ))
-                await conn.execute(text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_campaign_ref_links_code "
-                    "ON campaign_ref_links (code)"
-                ))
-                await conn.execute(text(
-                    "ALTER TABLE campaign_ref_links ADD COLUMN IF NOT EXISTS "
-                    "clicks_count INTEGER NOT NULL DEFAULT 0"
-                ))
-                await conn.execute(text(
                     "ALTER TABLE companies ADD COLUMN IF NOT EXISTS "
                     "password_hash VARCHAR(256)"
                 ))
@@ -99,8 +82,18 @@ async def lifespan(app: FastAPI):
                 raise e
             print(f"Oczekiwanie na bazę danych... pozostało prób: {retries}")
             await asyncio.sleep(2)
-    
-    yield
+
+    settings = get_settings()
+    app.state.tracking = TrackingClient(
+        settings.tracking_internal_url,
+        settings.tracking_service_token.get_secret_value(),
+        settings.tracking_redirect_base,
+        timeout=settings.tracking_timeout,
+    )
+    try:
+        yield
+    finally:
+        await app.state.tracking.aclose()
 
 
 app = FastAPI(title="Platforma Kampanii API", lifespan=lifespan)

@@ -15,6 +15,7 @@ const submissionFeedback = ref({})
 const refLinkUrls = ref({})
 const generatedRefLinks = ref({})
 const refLinkClicks = ref({})
+const refLinkPayouts = ref({})
 const refLinkLoading = ref({})
 const refLinkErrors = ref({})
 
@@ -74,9 +75,10 @@ const fetchRefLinks = async () => {
     const application = applications.value.find(app => app.creator_id === link.creator_id)
     if (!application || generatedRefLinks.value[application.id]) continue
 
-    generatedRefLinks.value[application.id] = `http://localhost:8000/r/${link.code}`
+    generatedRefLinks.value[application.id] = link.public_url
     refLinkUrls.value[application.id] = link.url
     refLinkClicks.value[application.id] = link.clicks_count
+    refLinkPayouts.value[application.id] = link.click_payout
   }
 }
 
@@ -111,8 +113,6 @@ const createRefLink = async (application) => {
   const appId = application.id
   refLinkLoading.value[appId] = true
   refLinkErrors.value[appId] = ''
-  generatedRefLinks.value[appId] = ''
-  refLinkClicks.value[appId] = 0
 
   try {
     const res = await fetch('http://localhost:8000/api/reflinks', {
@@ -132,8 +132,9 @@ const createRefLink = async (application) => {
         : data.detail
       throw new Error(detail || 'Nie udało się wygenerować reflinka')
     }
-    generatedRefLinks.value[appId] = `http://localhost:8000/r/${data.code}`
+    generatedRefLinks.value[appId] = data.public_url
     refLinkClicks.value[appId] = data.clicks_count
+    refLinkPayouts.value[appId] = data.click_payout
   } catch (err) {
     refLinkErrors.value[appId] = err.message
   } finally {
@@ -195,7 +196,7 @@ onMounted(fetchApplications)
 
         <div v-if="app.status === 'accepted'" class="ref-link-actions">
           <strong>Reflink dla twórcy</strong>
-          <div class="ref-link-inline-form">
+          <div v-if="!generatedRefLinks[app.id]" class="ref-link-inline-form">
             
             <input
               v-model="refLinkUrls[app.id]"
@@ -219,7 +220,8 @@ onMounted(fetchApplications)
             @focus="$event.target.select()"
           />
           <span v-if="generatedRefLinks[app.id]" class="ref-link-clicks">
-            Kliknięcia: {{ refLinkClicks[app.id] ?? 0 }}
+            Unikalne kliknięcia: {{ refLinkClicks[app.id] ?? '—' }}
+            <template v-if="refLinkPayouts[app.id] != null"> · do wypłaty: {{ refLinkPayouts[app.id] }} PLN</template>
           </span>
         </div>
       </div>

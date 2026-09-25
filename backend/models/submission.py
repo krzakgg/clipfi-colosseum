@@ -39,7 +39,6 @@ class CampaignSubmission(Base):
 
     # --- Wyniki Materiału (Statystyki) ---
     views_count = Column(Integer, default=0)
-    clicks_count = Column(Integer, default=0)
     last_metrics_update = Column(DateTime(timezone=True), nullable=True)
 
     # --- Obsługa Wypłat ---

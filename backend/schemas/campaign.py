@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, List
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 
 class CampaignBase(BaseModel):
     company_id: int
@@ -36,6 +36,13 @@ class CampaignBase(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     rollover_remaining_budget: bool = False
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _utc_when_naive(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 class CampaignCreate(CampaignBase):
     pass

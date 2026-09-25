@@ -1,0 +1,112 @@
+# Other services join the jestr-services network and call http://api-internal:8000.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    networks: [tracking-data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tracking
+      POSTGRES_USER: tracking
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TRACKING_APP_DB_PASSWORD: ${TRACKING_APP_DB_PASSWORD:?set TRACKING_APP_DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    networks: [tracking-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracking -d tracking"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["python", "-m", "tracking.migrate"]
+    env_file: .env
+    environment:
+      TRACKING_MIGRATE_DATABASE_URL: postgresql://tracking:${POSTGRES_PASSWORD}@postgres:5432/tracking
+    networks: [tracking-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-public:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRACKING_API_ROLE: public
+      UVICORN_LIMIT_CONCURRENCY: "1000"
+      UVICORN_TIMEOUT_KEEP_ALIVE: "5"
+    # local only; in production the reverse proxy joins "edge" instead
+    ports:
+      - "127.0.0.1:8080:8000"
+    networks: [tracking-data, edge]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck: &readyz
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api-internal:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRACKING_API_ROLE: internal
+    networks: [tracking-data, services]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck: *readyz
+
+  flusher:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "tracking.flusher"]
+    env_file: .env
+    networks: [tracking-data]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+networks:
+  tracking-data:
+    internal: true
+  edge: {}
+  services:
+    name: jestr-services
+
+volumes:
+  redis-data:
+  postgres-data:

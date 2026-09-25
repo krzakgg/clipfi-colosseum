@@ -1,10 +1,9 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Zastąp odpowiednimi poświadczeniami bazy danych z docker-compose
-DATABASE_URL = "postgresql+asyncpg://postgres:postgres_password@postgres_db:5432/postgres"
+from settings import get_settings
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(get_settings().database_url, echo=get_settings().database_echo)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
