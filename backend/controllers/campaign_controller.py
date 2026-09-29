@@ -86,14 +86,14 @@ async def update_campaign(
 
     if new_window != old_window and links:
         await db.flush()
-        moved: list[TrackedLink] = []
+        touched: list[TrackedLink] = []
         try:
             for link in links:
+                touched.append(link)
                 await _put_window(tracking, campaign_id, link, new_window)
-                moved.append(link)
         except TrackingError as exc:
             await db.rollback()
-            await _restore_windows(tracking, campaign_id, moved, old_window)
+            await _restore_windows(tracking, campaign_id, touched, old_window)
             raise _tracking_http_error(exc, "reflink windows of campaign %s could not be moved", campaign_id) from exc
 
     await db.commit()
@@ -112,14 +112,14 @@ async def delete_campaign(campaign_id: int, tracking: Tracking, db: AsyncSession
     await db.delete(campaign)
     await db.flush()
 
-    deactivated: list[TrackedLink] = []
+    touched: list[TrackedLink] = []
     try:
         for link in links:
+            touched.append(link)
             await tracking.deactivate_link(link.code)
-            deactivated.append(link)
     except TrackingError as exc:
         await db.rollback()
-        await _restore_windows(tracking, campaign_id, deactivated, window)
+        await _restore_windows(tracking, campaign_id, touched, window)
         log.error("reflinks of campaign %s could not be deactivated: %s", campaign_id, exc)
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL) from exc
 

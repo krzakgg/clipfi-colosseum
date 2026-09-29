@@ -245,7 +245,7 @@ class CachedLinkStore:
             cached = None
         if cached == _NEGATIVE:
             return None
-        if cached:
+        if cached is not None:
             try:
                 return _decode(cached)
             except ValueError as exc:
@@ -256,7 +256,7 @@ class CachedLinkStore:
         link = await self._inner.get_by_code(code)
         value, ttl = (_encode(link), self._positive_ttl) if link else (_NEGATIVE, self._negative_ttl)
         try:
-            await self._redis.set(key, value, ex=ttl)
+            await self._redis.set(key, value, ex=ttl, nx=cached is None)
         except RedisError as exc:
             log.warning("link cache write failed: %s", exc)
         return link
@@ -274,25 +274,25 @@ class CachedLinkStore:
 
     async def insert(self, code: str, data: LinkInput) -> Link:
         link = await self._inner.insert(code, data)
-        await self._invalidate(code)
+        await self._write_through(link)
         return link
 
     async def upsert(self, code: str, data: LinkInput) -> Link:
         link = await self._inner.upsert(code, data)
-        await self._invalidate(code)
+        await self._write_through(link)
         return link
 
     async def deactivate(self, code: str) -> Link | None:
         link = await self._inner.deactivate(code)
         if link:
-            await self._invalidate(code)
+            await self._write_through(link)
         return link
 
     async def list_by_campaign(self, campaign_id: str) -> list[Link]:
         return await self._inner.list_by_campaign(campaign_id)
 
-    async def _invalidate(self, code: str) -> None:
-        await self._redis.delete(keys.link(code))
+    async def _write_through(self, link: Link) -> None:
+        await self._redis.set(keys.link(link.code), _encode(link), ex=self._positive_ttl)
 
 
 def _encode(link: Link) -> str:

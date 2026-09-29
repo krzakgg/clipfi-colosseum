@@ -53,7 +53,8 @@ class InternalGate:
             return
 
         declared = headers.get("content-length")
-        if declared is not None and (not declared.isdigit() or int(declared) > self.max_body):
+        fits = declared is None or (declared.isascii() and declared.isdigit() and int(declared) <= self.max_body)
+        if not fits:
             await _too_large(scope, receive, send)
             return
 
