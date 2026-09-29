@@ -13,13 +13,13 @@ _LOCK_ID = 0x7472616B  # "trak"
 
 
 async def migrate(conn: asyncpg.Connection) -> list[str]:
-    await conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations "
-        "(version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-    )
     applied: list[str] = []
     async with conn.transaction():
         await conn.execute("SELECT pg_advisory_xact_lock($1)", _LOCK_ID)
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations "
+            "(version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+        )
         done = {row["version"] for row in await conn.fetch("SELECT version FROM schema_migrations")}
         for path in sorted(files("tracking").joinpath("migrations").iterdir(), key=lambda p: p.name):
             if not path.name.endswith(".sql") or path.name in done:

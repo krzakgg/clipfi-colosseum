@@ -180,7 +180,7 @@ class Flusher:
         events: list[ClickEvent] = []
         discard: list[str] = []
         for entry_id, fields in entries:
-            if fields is None:  # trimmed from the stream while pending
+            if not fields:  # trimmed from the stream while pending
                 discard.append(entry_id)
                 continue
             try:
