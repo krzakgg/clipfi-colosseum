@@ -2,14 +2,17 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, List
 from decimal import Decimal
 from datetime import datetime, timezone
+from models.campaign import CampaignStatus
 
 class CampaignBase(BaseModel):
     company_id: int
     title: str
     description: Optional[str] = None
+    status: CampaignStatus = CampaignStatus.DRAFT
     is_private: bool = False
     cover_image_url: Optional[str] = None
     gallery_image_urls: Optional[List[str]] = None
+    social_media_links: Optional[Dict[str, str]] = None
     
     product_description: Optional[str] = None
     press_kit_url: Optional[str] = None

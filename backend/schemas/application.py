@@ -30,6 +30,11 @@ class ApplicationResponse(BaseModel):
     feedback: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     created_at: datetime
+    creator_username: Optional[str] = None
+    creator_full_name: Optional[str] = None
+    creator_avatar_url: Optional[str] = None
+    creator_languages: Optional[list[str]] = None
+    creator_platform_stats: Optional[dict] = None
 
     class Config:
         from_attributes = True

@@ -38,10 +38,10 @@ const submitApplication = async () => {
 
     if (!res.ok) {
       const errData = await res.json()
-      throw new Error(errData.detail || 'Błąd podczas wysyłania zgłoszenia')
+      throw new Error(errData.detail || 'Application could not be submitted')
     }
 
-    successMsg.value = 'Zgłoszenie zostało pomyślnie wysłane do marki!'
+    successMsg.value = 'Application submitted successfully!'
     form.pitch = ''
     form.proposed_rate = null
   } catch (err) {
@@ -54,41 +54,41 @@ const submitApplication = async () => {
 
 <template>
   <div class="apply-box">
-    <h3>Aplikuj do kampanii (ID: {{ campaignId }})</h3>
+    <h3>Apply to campaign (ID: {{ campaignId }})</h3>
 
     <div v-if="successMsg" class="alert alert-success">{{ successMsg }}</div>
     <div v-if="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
 
     <form @submit.prevent="submitApplication" class="apply-form">
       <div class="form-group">
-        <label>Proponowany typ materiału</label>
+        <label>Proposed content type</label>
         <select v-model="form.proposed_content_type">
           <option value="Short">Short / Reel / TikTok</option>
-          <option value="LongVideo">Długie wideo (YouTube)</option>
+          <option value="LongVideo">Long-form video (YouTube)</option>
         </select>
       </div>
 
       <div class="form-group">
-        <label>Proponowana stawka (PLN)</label>
+        <label>Proposed rate (PLN)</label>
         <input 
           v-model="form.proposed_rate" 
           type="number" 
           step="0.01" 
-          placeholder="np. 500.00 (zostaw puste dla stawki domyślnej)" 
+          placeholder="e.g. 500.00 (leave empty for default rate)"
         />
       </div>
 
       <div class="form-group">
-        <label>Twój pomysł / Dlaczego pasujesz do tej marki? (Pitch)</label>
+        <label>Your idea / Why are you a good fit? (Pitch)</label>
         <textarea 
           v-model="form.pitch" 
           rows="4" 
-          placeholder="Opisz krótko swój pomysł na film..."
+          placeholder="Briefly describe your video idea..."
         ></textarea>
       </div>
 
       <button type="submit" class="btn-submit" :disabled="loading">
-        {{ loading ? 'Wysyłanie...' : 'Wyślij zgłoszenie' }}
+        {{ loading ? 'Submitting...' : 'Submit application' }}
       </button>
     </form>
   </div>

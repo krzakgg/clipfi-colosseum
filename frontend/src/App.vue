@@ -4,27 +4,43 @@ import CampaignList from './views/Campaign/CampaignList.vue'
 import CreateCampaign from './views/Campaign/CreateCampaign.vue'
 import EditCampaign from './views/Campaign/EditCampaign.vue'
 import CampaignDetails from './views/Campaign/CampaignDetails.vue'
-import TestSeeder from './views/Campaign/TestSeeder.vue'
 import Login from './views/Auth/Login.vue'
 
 const session = ref(JSON.parse(localStorage.getItem('waggi_session') || 'null'))
 const currentTab = ref('list')
 const editCampaignId = ref(null)
 const detailsCampaignId = ref(null)
+const selectedCampaignTitle = ref('')
+const detailsSection = ref('about')
 
-// Reakcja na kliknięcie "Edytuj" w tabeli
+// Open the campaign editor.
 const handleEditCampaign = (id) => {
   editCampaignId.value = id
   currentTab.value = 'edit'
 }
 
-// Przejście do widoku listy po pomyślnym dodaniu kampanii
+// Return to the campaign list after creation.
 const handleCampaignCreated = () => {
   currentTab.value = 'list'
 }
 
 const handleViewCampaign = (id) => {
   detailsCampaignId.value = id
+  selectedCampaignTitle.value = ''
+  detailsSection.value = 'about'
+  currentTab.value = 'details'
+}
+
+const handleCampaignLoaded = (title) => {
+  selectedCampaignTitle.value = title
+}
+
+const openCampaignSection = (section) => {
+  if (!detailsCampaignId.value) {
+    currentTab.value = 'list'
+    return
+  }
+  detailsSection.value = section
   currentTab.value = 'details'
 }
 
@@ -48,71 +64,98 @@ const logout = () => {
   <Login v-if="!session" @logged-in="handleLoggedIn" />
 
   <div v-else class="app-layout">
-    <nav class="nav-bar">
-      <span class="session-label">
-        {{ session.account_type === 'company' ? session.user.name : (session.user.full_name || session.user.username) }}
-        <small>{{ session.account_type === 'company' ? 'Firma' : 'Twórca' }}</small>
-      </span>
-      <button 
-        :class="{ active: currentTab === 'list' }" 
-        @click="currentTab = 'list'"
-      >
-        📋 Lista Kampanii
-      </button>
-      <button 
-        :class="{ active: currentTab === 'create' }" 
-        @click="currentTab = 'create'"
-      >
-        ➕ Nowa Kampania
-      </button>
-      <button 
-        :class="{ active: currentTab === 'edit' }" 
-        @click="currentTab = 'edit'"
-      >
-        ✏️ Edycja Kampanii
-      </button>
-      <button 
-        :class="{ active: currentTab === 'test-data' }" 
-        @click="currentTab = 'test-data'"
-      >
-        ⚙️ Dane Testowe
-      </button>
-      <button class="logout-button" @click="logout">Wyloguj</button>
-    </nav>
+    <aside class="app-sidebar">
+      <div class="brand">LOGO</div>
 
-    <main>
-      <!-- Dzięki v-if komponenty są odmontowywane i zamontowywane ponownie, 
-           co wymusza wykonanie onMounted i pobranie aktualnych danych z bazy -->
-      <CampaignList 
-        v-if="currentTab === 'list'" 
-        @edit-campaign="handleEditCampaign"
-        @view-campaign="handleViewCampaign"
-        @create-new="currentTab = 'create'"
-      />
-
-      <CampaignDetails
-        v-else-if="currentTab === 'details'"
-        :campaign-id="detailsCampaignId"
-        :session="session"
-        @back="currentTab = 'list'"
-        @edit-campaign="handleDetailsEdit"
-      />
-
-      <CreateCampaign 
-        v-else-if="currentTab === 'create'" 
-        @campaign-created="handleCampaignCreated"
-      />
-
-      <div v-else-if="currentTab === 'edit'" class="edit-wrapper">
-        <div class="selector-bar">
-          <label>Wybrane ID kampanii: </label>
-          <input type="number" v-model.number="editCampaignId" min="1" />
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <span class="nav-label">GENERAL</span>
+          <button @click="currentTab = 'list'">
+            <span class="nav-icon">⌂</span>
+            <span>Home</span>
+          </button>
+          <button class="sidebar-game-button" @click="currentTab = 'list'">
+            <span class="nav-icon">◫</span>
+            <span>Games</span>
+          </button>
+          <select class="sidebar-game-select" aria-label="Select game">
+            <option>{{ selectedCampaignTitle || 'Select campaign' }}</option>
+          </select>
         </div>
-        <EditCampaign :campaign-id="editCampaignId" />
-      </div>
 
-      <TestSeeder v-else-if="currentTab === 'test-data'" />
-    </main>
+        <div class="nav-section">
+          <span class="nav-label">CAMPAIGNS</span>
+          <button :class="{ active: currentTab === 'list' }" @click="currentTab = 'list'">
+            <span class="nav-icon">▧</span>
+            <span>Overview</span>
+            <span class="nav-chevron">›</span>
+          </button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'creators' }" @click="openCampaignSection('creators')"><span class="nav-icon">♧</span><span>Creators</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'submissions' }" @click="openCampaignSection('submissions')"><span class="nav-icon">⇧</span><span>Submissions</span><span class="nav-chevron">›</span></button>
+          <button @click="currentTab = 'list'"><span class="nav-icon">□</span><span>Requests</span><span class="nav-chevron">›</span></button>
+          <button @click="currentTab = 'list'"><span class="nav-icon">⚿</span><span>Keys</span><span class="nav-chevron">›</span></button>
+          <button @click="currentTab = 'list'"><span class="nav-icon">▤</span><span>Budget</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'details' }" @click="openCampaignSection('details')"><span class="nav-icon">⊙</span><span>Details</span><span class="nav-chevron">⌄</span></button>
+          <button @click="currentTab = 'list'"><span class="nav-icon">♧</span><span>Notifications</span><span class="nav-chevron">›</span></button>
+          <button @click="currentTab = 'list'"><span class="nav-icon">※</span><span>Announcement</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'edit' }" @click="currentTab = 'edit'">
+            <span class="nav-icon">✎</span>
+            <span>Edit</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <span class="nav-label">SET UP</span>
+          <button :class="{ active: currentTab === 'create' }" @click="currentTab = 'create'">
+            <span class="nav-icon">＋</span>
+            <span>New Campaign</span>
+          </button>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="workspace-panel">
+      <header class="top-bar">
+        <div class="user-pill">
+          <span class="user-avatar">◉</span>
+          <span>{{ session.account_type === 'company' ? session.user.name : (session.user.full_name || session.user.username) }}</span>
+        </div>
+        <button class="logout-button" @click="logout">Log out</button>
+      </header>
+
+      <main class="page-shell">
+        <CampaignList 
+          v-if="currentTab === 'list'" 
+          @edit-campaign="handleEditCampaign"
+          @view-campaign="handleViewCampaign"
+          @create-new="currentTab = 'create'"
+        />
+
+        <CampaignDetails
+          v-else-if="currentTab === 'details'"
+          :campaign-id="detailsCampaignId"
+          :session="session"
+          :initial-section="detailsSection"
+          @back="currentTab = 'list'"
+          @edit-campaign="handleDetailsEdit"
+          @campaign-loaded="handleCampaignLoaded"
+        />
+
+        <CreateCampaign 
+          v-else-if="currentTab === 'create'" 
+          @campaign-created="handleCampaignCreated"
+        />
+
+        <div v-else-if="currentTab === 'edit'" class="edit-wrapper">
+          <div class="selector-bar">
+            <label>Selected campaign ID: </label>
+            <input type="number" v-model.number="editCampaignId" min="1" />
+          </div>
+          <EditCampaign :campaign-id="editCampaignId" />
+        </div>
+
+      </main>
+    </div>
   </div>
 </template>
 

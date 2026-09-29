@@ -72,6 +72,7 @@ onMounted(fetchCampaigns)
           <tr>
             <th>ID</th>
             <th>Tytuł</th>
+                        <th>Status</th>
             <th>Firma ID</th>
             <th>Budżet całkowity</th>
             <th>Budżet / Twórcę</th>
@@ -83,6 +84,7 @@ onMounted(fetchCampaigns)
           <tr v-for="c in campaigns" :key="c.id">
             <td><strong>#{{ c.id }}</strong></td>
             <td class="title-cell">{{ c.title }}</td>
+            <td><span :class="['status-badge', `status-${(c.status || 'DRAFT').toLowerCase()}`]">{{ c.status || 'DRAFT' }}</span></td>
             <td>{{ c.company_id }}</td>
             <td>{{ c.total_budget ? `${c.total_budget} PLN` : '-' }}</td>
             <td>{{ c.budget_per_creator ? `${c.budget_per_creator} PLN` : '-' }}</td>

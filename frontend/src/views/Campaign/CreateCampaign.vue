@@ -13,6 +13,17 @@ const galleryFiles = ref([])
 const coverPreview = ref('')
 const galleryPreviews = ref([])
 
+const parseJsonField = (value, label) => {
+  if (!value.trim()) return null
+  try {
+    const parsed = JSON.parse(value)
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error()
+    return parsed
+  } catch {
+    throw new Error(`${label} musi zawierać poprawny obiekt JSON.`)
+  }
+}
+
 // Pobieranie listy firm z backendu
 const fetchCompanies = async () => {
   try {
@@ -34,6 +45,7 @@ const form = reactive({
   company_id: '',
   title: '',
   description: '',
+  status: 'DRAFT',
   is_private: false,
   cover_image_url: '',
   gallery_image_urls_str: '',
@@ -46,17 +58,28 @@ const form = reactive({
   // Budżet
   total_budget: null,
   budget_per_creator: null,
+  budget_per_time_unit: null,
+  budget_per_language_str: '',
 
   // Wymagania i zasady
   languages_str: 'PL, EN',
   min_views: 0,
   min_subscribers: 0,
   max_videos_per_creator: 1,
+  max_submissions_per_day: null,
+  platform_requirements_str: '',
+  start_date: '',
+  end_date: '',
+  rollover_remaining_budget: false,
+
+  // Linki kampanii
+  social_media_links_str: '',
 
   // Stawki i rozliczenie
   short_payout: null,
   long_payout: null,
   payout_per_views: null,
+  views_unit_step: 1000,
   payout_per_click: null
 })
 
@@ -73,6 +96,7 @@ const handleSubmit = async () => {
       company_id: parseInt(form.company_id),
       title: form.title,
       description: form.description || null,
+      status: form.status,
       is_private: form.is_private,
       cover_image_url: uploadedCover || null,
       gallery_image_urls: [...form.gallery_image_urls_str.split(',').map(url => url.trim()).filter(Boolean), ...uploadedGallery],
@@ -83,17 +107,26 @@ const handleSubmit = async () => {
 
       total_budget: parseFloat(form.total_budget),
       budget_per_creator: form.budget_per_creator ? parseFloat(form.budget_per_creator) : null,
+      budget_per_time_unit: form.budget_per_time_unit ? parseFloat(form.budget_per_time_unit) : null,
+      budget_per_language: parseJsonField(form.budget_per_language_str, 'Budżet według języka'),
 
       languages: form.languages_str.split(',').map(l => l.trim().toUpperCase()).filter(Boolean),
       min_views: parseInt(form.min_views) || 0,
       min_subscribers: parseInt(form.min_subscribers) || 0,
       max_videos_per_creator: form.max_videos_per_creator ? parseInt(form.max_videos_per_creator) : null,
+      max_submissions_per_day: form.max_submissions_per_day ? parseInt(form.max_submissions_per_day) : null,
+      platform_requirements: parseJsonField(form.platform_requirements_str, 'Wymagania platform'),
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      rollover_remaining_budget: form.rollover_remaining_budget,
+      social_media_links: parseJsonField(form.social_media_links_str, 'Linki social media'),
 
       payout_by_content_type: {
         Short: form.short_payout ? parseFloat(form.short_payout) : 0,
         LongVideo: form.long_payout ? parseFloat(form.long_payout) : 0
       },
       payout_per_views: form.payout_per_views ? parseFloat(form.payout_per_views) : null,
+      views_unit_step: parseInt(form.views_unit_step) || 1000,
       payout_per_click: form.payout_per_click ? parseFloat(form.payout_per_click) : null
     }
 
@@ -119,6 +152,7 @@ const handleSubmit = async () => {
       company_id: '',
       title: '',
       description: '',
+      status: 'DRAFT',
       is_private: false,
       cover_image_url: '',
       gallery_image_urls_str: '',
@@ -127,13 +161,22 @@ const handleSubmit = async () => {
       brand_guidelines: '',
       total_budget: null,
       budget_per_creator: null,
+      budget_per_time_unit: null,
+      budget_per_language_str: '',
       languages_str: 'PL, EN',
       min_views: 0,
       min_subscribers: 0,
       max_videos_per_creator: 1,
+      max_submissions_per_day: null,
+      platform_requirements_str: '',
+      start_date: '',
+      end_date: '',
+      rollover_remaining_budget: false,
+      social_media_links_str: '',
       short_payout: null,
       long_payout: null,
       payout_per_views: null,
+      views_unit_step: 1000,
       payout_per_click: null
     })
     coverFile.value = null
@@ -197,16 +240,28 @@ const handleGallerySelected = (event) => {
           <input v-model="form.title" type="text" placeholder="np. Letnia promocja aplikacji" required />
         </div>
 
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Status kampanii</label>
+            <select v-model="form.status">
+              <option value="DRAFT">Szkic</option>
+              <option value="ACTIVE">Aktywna</option>
+              <option value="PAUSED">Wstrzymana</option>
+              <option value="COMPLETED">Zakończona</option>
+              <option value="CANCELLED">Anulowana</option>
+            </select>
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" v-model="form.is_private" />
+              Kampania prywatna
+            </label>
+          </div>
+        </div>
+
         <div class="form-group">
           <label>Opis ogólny</label>
           <textarea v-model="form.description" rows="3" placeholder="Krótki opis celu kampanii..."></textarea>
-        </div>
-
-        <div class="form-group checkbox-group">
-          <label>
-            <input type="checkbox" v-model="form.is_private" />
-            Kampania prywatna (tylko dla zaproszonych twórców)
-          </label>
         </div>
 
         <div class="grid-2">
@@ -267,6 +322,15 @@ const handleGallerySelected = (event) => {
             <label>Budżet na 1 twórcę (PLN)</label>
             <input v-model="form.budget_per_creator" type="number" step="0.01" min="0" max="99999999.99" placeholder="1500.00" />
           </div>
+          <div class="form-group">
+            <label>Budżet na jednostkę czasu (PLN)</label>
+            <input v-model="form.budget_per_time_unit" type="number" step="0.01" min="0" max="99999999.99" placeholder="500.00" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Budżet według języka (JSON)</label>
+          <textarea v-model="form.budget_per_language_str" rows="2" placeholder='{"PL": 1000, "EN": 1200}'></textarea>
         </div>
 
         <div class="grid-3">
@@ -290,6 +354,40 @@ const handleGallerySelected = (event) => {
           <label>Maksymalna liczba filmów na twórcę</label>
           <input v-model="form.max_videos_per_creator" type="number" min="1" placeholder="1" />
         </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Maksymalna liczba zgłoszeń dziennie</label>
+            <input v-model="form.max_submissions_per_day" type="number" min="1" placeholder="Bez limitu" />
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" v-model="form.rollover_remaining_budget" />
+              Przenoś niewykorzystany budżet
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Wymagania platform (JSON)</label>
+          <textarea v-model="form.platform_requirements_str" rows="2" placeholder='{"YouTube": {"min_subscribers": 1000}}'></textarea>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Data rozpoczęcia</label>
+            <input v-model="form.start_date" type="datetime-local" />
+          </div>
+          <div class="form-group">
+            <label>Data zakończenia</label>
+            <input v-model="form.end_date" type="datetime-local" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Linki social media (JSON)</label>
+          <textarea v-model="form.social_media_links_str" rows="2" placeholder='{"instagram": "https://instagram.com/...", "youtube": "https://youtube.com/..."}'></textarea>
+        </div>
       </fieldset>
 
       <!-- Sekcja 4: Rozliczenia i Stawki -->
@@ -312,6 +410,11 @@ const handleGallerySelected = (event) => {
           <div class="form-group">
             <label>Stawka za 1000 wyświetleń (CPM PLN)</label>
             <input v-model="form.payout_per_views" type="number" step="0.01" min="0" max="99999999.99" placeholder="15.00" />
+          </div>
+
+          <div class="form-group">
+            <label>Krok rozliczenia wyświetleń</label>
+            <input v-model="form.views_unit_step" type="number" min="1" placeholder="1000" />
           </div>
 
           <div class="form-group">

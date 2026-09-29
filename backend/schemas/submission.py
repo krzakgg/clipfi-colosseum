@@ -44,6 +44,11 @@ class CampaignSubmissionResponse(BaseModel):
     calculated_payout: Decimal
     paid_amount: Optional[Decimal]
     created_at: datetime
+    creator_username: Optional[str] = None
+    creator_full_name: Optional[str] = None
+    creator_avatar_url: Optional[str] = None
+    creator_languages: Optional[list[str]] = None
+    creator_platform_stats: Optional[dict] = None
 
     class Config:
         from_attributes = True

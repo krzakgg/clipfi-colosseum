@@ -33,9 +33,9 @@ const submitVideo = async () => {
       })
     })
     const data = await response.json()
-    if (!response.ok) throw new Error(data.detail || 'Nie udało się wysłać materiału')
+    if (!response.ok) throw new Error(data.detail || 'Material could not be submitted')
 
-    successMsg.value = 'Materiał został wysłany do akceptacji firmy.'
+    successMsg.value = 'Material submitted for company review.'
     form.video_url = ''
   } catch (error) {
     errorMsg.value = error.message
@@ -47,19 +47,19 @@ const submitVideo = async () => {
 
 <template>
   <div class="submission-box">
-    <h3>Wyślij materiał do akceptacji</h3>
-    <p class="submission-help">Ta opcja działa po zaakceptowaniu Twojej aplikacji przez firmę.</p>
+    <h3>Submit material for review</h3>
+    <p class="submission-help">Available after the company accepts your application.</p>
     <div v-if="successMsg" class="alert alert-success">{{ successMsg }}</div>
     <div v-if="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
 
     <form class="apply-form" @submit.prevent="submitVideo">
       <div class="form-group">
-        <label>Link do opublikowanego materiału</label>
+        <label>Published material link</label>
         <input v-model="form.video_url" type="url" placeholder="https://youtube.com/..." required />
       </div>
       <div class="grid-2">
         <label class="form-group">
-          <span>Platforma</span>
+          <span>Platform</span>
           <select v-model="form.platform">
             <option value="youtube">YouTube</option>
             <option value="tiktok">TikTok</option>
@@ -67,15 +67,15 @@ const submitVideo = async () => {
           </select>
         </label>
         <label class="form-group">
-          <span>Typ materiału</span>
+          <span>Content type</span>
           <select v-model="form.content_type">
             <option value="Short">Short / Reel</option>
-            <option value="LongVideo">Długie wideo</option>
+            <option value="LongVideo">Long-form video</option>
           </select>
         </label>
       </div>
       <button class="btn-submit" type="submit" :disabled="loading">
-        {{ loading ? 'Wysyłanie...' : 'Wyślij materiał' }}
+        {{ loading ? 'Submitting...' : 'Submit material' }}
       </button>
     </form>
   </div>

@@ -1,134 +1,107 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import ApplyToCampaign from './ApplyToCampaign.vue'
-import ManageApplication from './ManageApplication.vue'
-import SubmitCampaignVideo from './SubmitCampaignVideo.vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import AboutCampaignView from './sections/AboutCampaignView.vue'
+import CampaignDetailsView from './sections/CampaignDetailsView.vue'
+import CreatorsView from './sections/CreatorsView.vue'
+import GuidelinesView from './sections/GuidelinesView.vue'
+import PressKitView from './sections/PressKitView.vue'
+import SubmissionsView from './sections/SubmissionsView.vue'
 
-const props = defineProps({
-  campaignId: { type: Number, required: true },
-  session: { type: Object, required: true }
-})
-
-const emit = defineEmits(['back', 'edit-campaign'])
-
+const props = defineProps({ campaignId: { type: Number, required: true }, session: { type: Object, required: true }, initialSection: { type: String, default: 'about' } })
+const emit = defineEmits(['back', 'edit-campaign', 'campaign-loaded'])
 const campaign = ref(null)
 const selectedImage = ref('')
+const activeSection = ref('about')
 const loading = ref(true)
 const errorMessage = ref('')
+const uploadLoading = ref(false)
+const uploadError = ref('')
+const creatorApplicationStatus = ref(null)
+const creatorApplicationLoading = ref(false)
 
-const galleryImages = computed(() => {
-  if (!campaign.value) return []
-  return [campaign.value.cover_image_url, ...(campaign.value.gallery_image_urls || [])].filter(Boolean)
-})
-
+const galleryImages = computed(() => campaign.value ? [campaign.value.cover_image_url, ...(campaign.value.gallery_image_urls || [])].filter(Boolean) : [])
 const displayImage = computed(() => selectedImage.value || galleryImages.value[0] || '')
+const pressKitHost = computed(() => {
+  if (!campaign.value?.press_kit_url) return ''
+  try { return new URL(campaign.value.press_kit_url).hostname.toLowerCase() } catch { return '' }
+})
+const canDownloadPressKit = computed(() => {
+  const host = pressKitHost.value
+  return Boolean(host) && !['drive.google.com', 'docs.google.com', 'dropbox.com', 'www.dropbox.com'].some(blocked => host === blocked || host.endsWith(`.${blocked}`))
+})
+const pressKitDownloadUrl = computed(() => canDownloadPressKit.value ? `http://localhost:8000/api/campaigns/${props.campaignId}/press-kit/download` : '')
+const guidelineItems = computed(() => (campaign.value?.brand_guidelines || '').split(/\r?\n+/).map(item => item.replace(/^[-•*]\s*/, '').trim()).filter(Boolean))
+const talkingPoints = computed(() => Object.entries(campaign.value?.platform_requirements || {}).map(([platform, values]) => {
+  const details = typeof values === 'object' && values !== null ? Object.entries(values).map(([key, value]) => `${key}: ${value}`).join(', ') : String(values)
+  return `${platform}: ${details}`
+}))
+const isCompanyOwner = computed(() => props.session.account_type === 'company' && campaign.value?.company_id === props.session.user.id)
+const canSubmitCampaignVideo = computed(() => props.session.account_type === 'creator' && creatorApplicationStatus.value === 'accepted')
+const canApplyToCampaign = computed(() => props.session.account_type === 'creator' && !creatorApplicationLoading.value && !creatorApplicationStatus.value)
+const formatDate = date => date ? new Date(date).toLocaleDateString('en-US') : 'Not specified'
+const formatJson = value => value && Object.keys(value).length ? JSON.stringify(value) : 'No additional platform requirements.'
+
+const loadCreatorApplication = async () => {
+  creatorApplicationLoading.value = true
+  try {
+    const response = await fetch(`http://localhost:8000/api/applications/creator/${props.session.user.id}/campaign/${props.campaignId}`)
+    creatorApplicationStatus.value = response.ok ? (await response.json()).status : null
+  } catch { creatorApplicationStatus.value = null } finally { creatorApplicationLoading.value = false }
+}
 
 const loadCampaign = async () => {
   loading.value = true
   errorMessage.value = ''
   try {
     const response = await fetch(`http://localhost:8000/api/campaigns/${props.campaignId}`)
-    if (!response.ok) throw new Error('Nie znaleziono kampanii o podanym ID')
+    if (!response.ok) throw new Error('Campaign with this ID was not found')
     campaign.value = await response.json()
+    emit('campaign-loaded', campaign.value.title)
     selectedImage.value = galleryImages.value[0] || ''
-  } catch (error) {
-    errorMessage.value = error.message
-  } finally {
-    loading.value = false
-  }
+    if (props.session.account_type === 'creator') await loadCreatorApplication()
+  } catch (error) { errorMessage.value = error.message } finally { loading.value = false }
 }
 
-const formatDate = (date) => date ? new Date(date).toLocaleDateString('pl-PL') : 'Nie określono'
-
-const isCompanyOwner = computed(() => (
-  props.session.account_type === 'company' &&
-  campaign.value?.company_id === props.session.user.id
-))
+const uploadPressKit = async event => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  uploadLoading.value = true
+  uploadError.value = ''
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`http://localhost:8000/api/campaigns/${props.campaignId}/press-kit/upload`, { method: 'POST', body: formData })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.detail || 'Press Kit upload failed')
+    campaign.value = data
+  } catch (error) { uploadError.value = error.message } finally { uploadLoading.value = false }
+}
 
 onMounted(loadCampaign)
+watch(() => props.initialSection, section => { activeSection.value = section }, { immediate: true })
 </script>
 
 <template>
   <div class="details-container">
-    <div class="details-toolbar">
-      <button class="btn-back" @click="emit('back')">← Wróć do listy</button>
-      <button v-if="isCompanyOwner" class="btn-edit" @click="emit('edit-campaign', campaign.id)">✏️ Edytuj kampanię</button>
-    </div>
-
-    <div v-if="loading" class="state-msg">Wczytywanie szczegółów kampanii...</div>
+    <div class="details-toolbar"><button class="btn-back" @click="emit('back')">← Back to campaigns</button><button v-if="isCompanyOwner" class="btn-edit" @click="emit('edit-campaign', campaign.id)">✏️ Edit campaign</button></div>
+    <div v-if="loading" class="state-msg">Loading campaign details...</div>
     <div v-else-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
     <template v-else-if="campaign">
-      <section class="hero-section">
-        <div class="hero-copy">
-          <span class="eyebrow">Kampania #{{ campaign.id }}</span>
-          <h1>{{ campaign.title }}</h1>
-          <span :class="['badge', campaign.is_private ? 'badge-private' : 'badge-public']">
-            {{ campaign.is_private ? 'Prywatna' : 'Publiczna' }}
-          </span>
-          <p>{{ campaign.description || 'Brak krótkiego opisu kampanii.' }}</p>
-        </div>
-        <div class="hero-image" :class="{ 'empty-image': !displayImage }">
-          <img v-if="displayImage" :src="displayImage" :alt="`Obraz kampanii ${campaign.title}`" />
-          <span v-else>Brak obrazu tytułowego</span>
-        </div>
-      </section>
-
-      <section v-if="galleryImages.length > 1" class="gallery-section">
-        <div class="section-heading">
-          <h2>Galeria</h2>
-          <span>{{ galleryImages.length }} obrazów</span>
-        </div>
-        <div class="gallery-grid">
-          <button
-            v-for="(image, index) in galleryImages"
-            :key="`${image}-${index}`"
-            class="gallery-thumb"
-            :class="{ selected: image === displayImage }"
-            @click="selectedImage = image"
-          >
-            <img :src="image" :alt="`Podgląd obrazu ${index + 1}`" />
-          </button>
-        </div>
-      </section>
-
-      <section class="info-grid">
-        <article class="info-card">
-          <h2>Opis kampanii</h2>
-          <p>{{ campaign.product_description || 'Brak dodatkowego opisu produktu.' }}</p>
-          <h3>Wytyczne marki</h3>
-          <p>{{ campaign.brand_guidelines || 'Brak wytycznych.' }}</p>
-        </article>
-
-        <article class="info-card">
-          <h2>Najważniejsze informacje</h2>
-          <dl>
-            <div><dt>Budżet całkowity</dt><dd>{{ campaign.total_budget }} PLN</dd></div>
-            <div><dt>Budżet na twórcę</dt><dd>{{ campaign.budget_per_creator || 'Do ustalenia' }}{{ campaign.budget_per_creator ? ' PLN' : '' }}</dd></div>
-            <div><dt>Języki</dt><dd>{{ campaign.languages?.join(', ') || 'Nie określono' }}</dd></div>
-            <div><dt>Termin</dt><dd>{{ formatDate(campaign.start_date) }} - {{ formatDate(campaign.end_date) }}</dd></div>
-            <div><dt>Minimalne wyświetlenia</dt><dd>{{ campaign.min_views || 0 }}</dd></div>
-            <div><dt>Minimalni obserwujący</dt><dd>{{ campaign.min_subscribers || 0 }}</dd></div>
-          </dl>
-        </article>
-      </section>
-
-      <ApplyToCampaign
-        v-if="props.session.account_type === 'creator'"
-        :campaign-id="campaign.id"
-        :creator-id="props.session.user.id"
-      />
-      <SubmitCampaignVideo
-        v-if="props.session.account_type === 'creator'"
-        :campaign-id="campaign.id"
-        :creator-id="props.session.user.id"
-      />
-      <ManageApplication
-        v-else-if="isCompanyOwner"
-        :campaign-id="campaign.id"
-        :company-id="props.session.user.id"
-      />
+      <section class="campaign-heading"><div><span class="eyebrow">Kampania #{{ campaign.id }}</span><div class="campaign-title-row"><h1>{{ campaign.title }}</h1><span :class="['status-badge', `status-${(campaign.status || 'DRAFT').toLowerCase()}`]">{{ campaign.status || 'DRAFT' }}</span></div><p>{{ campaign.description || 'No short campaign description.' }}</p></div><div class="campaign-heading-meta"><span>{{ formatDate(campaign.start_date) }} - {{ formatDate(campaign.end_date) }}</span><span :class="['badge', campaign.is_private ? 'badge-private' : 'badge-public']">{{ campaign.is_private ? 'Prywatna' : 'Publiczna' }}</span></div></section>
+      <nav v-if="!['creators', 'submissions'].includes(activeSection)" class="campaign-tabs" aria-label="Sekcje kampanii">
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'about' }" @click="activeSection = 'about'">ⓘ <span>About</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'details' }" @click="activeSection = 'details'">⌾ <span>Details</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'guidelines' }" @click="activeSection = 'guidelines'">▣ <span>Guidelines</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'resources' }" @click="activeSection = 'resources'">□ <span>Press Kit</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'submissions' }" @click="activeSection = 'submissions'">⇧ <span>Submissions</span></button>
+      </nav>
+      <AboutCampaignView v-if="activeSection === 'about'" :campaign="campaign" :gallery-images="galleryImages" :display-image="displayImage" :selected-image="selectedImage" :format-date="formatDate" @select-image="selectedImage = $event" />
+      <CampaignDetailsView v-else-if="activeSection === 'details'" :campaign="campaign" :format-date="formatDate" />
+      <GuidelinesView v-else-if="activeSection === 'guidelines'" :guideline-items="guidelineItems" :talking-points="talkingPoints" />
+      <PressKitView v-else-if="activeSection === 'resources'" :campaign="campaign" :gallery-images="galleryImages" :display-image="displayImage" :press-kit-download-url="pressKitDownloadUrl" :format-date="formatDate" :format-json="formatJson" :is-company-owner="isCompanyOwner" :upload-loading="uploadLoading" :upload-error="uploadError" @upload-press-kit="uploadPressKit" />
+      <CreatorsView v-else-if="activeSection === 'creators'" :campaign="campaign" :session="session" :is-company-owner="isCompanyOwner" />
+      <SubmissionsView v-else-if="activeSection === 'submissions'" :campaign="campaign" :session="session" :can-apply-to-campaign="canApplyToCampaign" :can-submit-campaign-video="canSubmitCampaignVideo" :creator-application-loading="creatorApplicationLoading" :creator-application-status="creatorApplicationStatus" :is-company-owner="isCompanyOwner" />
     </template>
   </div>
 </template>
-
