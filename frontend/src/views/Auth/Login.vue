@@ -81,24 +81,24 @@ const handleSubmit = async () => {
 <template>
   <main class="login-page">
     <section class="login-panel">
-      <p class="login-eyebrow">WAGGI / PANEL UŻYTKOWNIKA</p>
-      <h1>{{ mode === 'login' ? 'Zaloguj się do Waggi' : 'Załóż konto w Waggi' }}</h1>
-      <p class="login-subtitle">Wybierz typ konta, aby {{ mode === 'login' ? 'przejść do swojego panelu.' : 'rozpocząć współpracę.' }}</p>
+      <p class="login-eyebrow">WAGGI / USER PANEL</p>
+      <h1>{{ mode === 'login' ? 'Log in to Waggi' : 'Create a Waggi account' }}</h1>
+      <p class="login-subtitle">Choose your account type to {{ mode === 'login' ? 'access your dashboard.' : 'start collaborating.' }}</p>
 
-      <div class="account-switcher" role="tablist" aria-label="Typ konta">
+      <div class="account-switcher" role="tablist" aria-label="Account type">
         <button
           type="button"
           :class="{ selected: form.account_type === 'company' }"
           @click="form.account_type = 'company'"
         >
-          Firma
+          Company
         </button>
         <button
           type="button"
           :class="{ selected: form.account_type === 'creator' }"
           @click="form.account_type = 'creator'"
         >
-          Twórca
+          Creator
         </button>
       </div>
 
@@ -106,19 +106,19 @@ const handleSubmit = async () => {
 
       <form @submit.prevent="handleSubmit" class="login-form">
         <label v-if="mode === 'register' && form.account_type === 'company'" class="form-group">
-          <span>Nazwa firmy</span>
+          <span>Company name</span>
           <input v-model="form.name" type="text" autocomplete="organization" required />
         </label>
         <label v-if="mode === 'register' && form.account_type === 'creator'" class="form-group">
-          <span>Nazwa użytkownika</span>
+          <span>Username</span>
           <input v-model="form.username" type="text" autocomplete="username" required />
         </label>
         <label v-if="mode === 'register' && form.account_type === 'creator'" class="form-group">
-          <span>Imię i nazwisko</span>
+          <span>Full name</span>
           <input v-model="form.full_name" type="text" autocomplete="name" />
         </label>
         <label class="form-group">
-          <span>{{ form.account_type === 'company' ? 'Adres e-mail' : 'E-mail lub nazwa użytkownika' }}</span>
+          <span>{{ form.account_type === 'company' ? 'Email address' : 'Email or username' }}</span>
           <input
             v-model="form.login"
             :type="form.account_type === 'company' ? 'email' : 'text'"
@@ -127,19 +127,19 @@ const handleSubmit = async () => {
           />
         </label>
         <label class="form-group">
-          <span>Hasło</span>
+          <span>Password</span>
           <input v-model="form.password" type="password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" minlength="8" required />
         </label>
         <label v-if="mode === 'register'" class="form-group">
-          <span>Powtórz hasło</span>
+          <span>Confirm password</span>
           <input v-model="passwordConfirmation" type="password" autocomplete="new-password" minlength="8" required />
         </label>
         <button class="btn-submit login-submit" type="submit" :disabled="loading">
-          {{ loading ? 'Przetwarzanie...' : (mode === 'login' ? 'Zaloguj się' : 'Załóż konto') }}
+          {{ loading ? 'Processing...' : (mode === 'login' ? 'Log in' : 'Create account') }}
         </button>
       </form>
       <button class="auth-mode-link" type="button" @click="mode = mode === 'login' ? 'register' : 'login'; errorMessage = ''">
-        {{ mode === 'login' ? 'Nie masz konta? Załóż je' : 'Masz już konto? Zaloguj się' }}
+        {{ mode === 'login' ? 'Don’t have an account? Sign up' : 'Already have an account? Log in' }}
       </button>
     </section>
   </main>

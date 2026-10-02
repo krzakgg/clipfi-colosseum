@@ -1,16 +1,19 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 const props = defineProps({
   campaignId: { type: Number, required: true },
-  companyId: { type: Number, required: true }
+  companyId: { type: Number, required: true },
+  section: { type: String, default: 'all' }
 })
 
 const applications = ref([])
 const submissions = ref([])
 const loading = ref(false)
 const submissionsLoading = ref(false)
-const feedbackTexts = ref({}) // Słownik przechowujący wpisane uwagi per ID zgłoszenia
+const submissionView = ref('list')
+const selectedSubmissionId = ref(null)
+const feedbackTexts = ref({}) // Feedback keyed by application ID
 const submissionFeedback = ref({})
 const refLinkUrls = ref({})
 const generatedRefLinks = ref({})
@@ -18,6 +21,24 @@ const refLinkClicks = ref({})
 const refLinkPayouts = ref({})
 const refLinkLoading = ref({})
 const refLinkErrors = ref({})
+
+const creatorName = (item) => item.creator_full_name || item.creator_username || `Creator #${item.creator_id}`
+const creatorHandle = (item) => item.creator_username ? `@${item.creator_username}` : `ID ${item.creator_id}`
+const creatorLanguages = (item) => item.creator_languages?.join(', ') || '—'
+const creatorSocials = (item) => Object.keys(item.creator_platform_stats || {}).slice(0, 4)
+const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-US') : '—'
+const statusLabel = (status) => ({ pending: 'Pending', accepted: 'Accepted', rejected: 'Rejected', approved: 'Approved', revision_requested: 'Revision requested' }[status] || status)
+const selectedSubmission = computed(() => submissions.value.find(submission => submission.id === selectedSubmissionId.value))
+
+const openSubmissionReview = (submission) => {
+  selectedSubmissionId.value = submission.id
+  submissionView.value = 'review'
+}
+
+const closeSubmissionReview = () => {
+  selectedSubmissionId.value = null
+  submissionView.value = 'list'
+}
 
 const fetchApplications = async () => {
   if (!props.campaignId) return
@@ -27,10 +48,10 @@ const fetchApplications = async () => {
     if (res.ok) {
       applications.value = await res.json()
       await fetchRefLinks()
-      await fetchSubmissions()
+      if (props.section !== 'creators') await fetchSubmissions()
     }
   } catch (err) {
-    console.error('Błąd pobierania zgłoszeń:', err)
+    console.error('Could not load applications:', err)
   } finally {
     loading.value = false
   }
@@ -58,7 +79,7 @@ const reviewSubmission = async (submissionId, newStatus) => {
       })
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.detail || 'Błąd zmiany statusu materiału')
+    if (!res.ok) throw new Error(data.detail || 'Could not update material status')
     const index = submissions.value.findIndex(submission => submission.id === submissionId)
     if (index !== -1) submissions.value[index] = data
   } catch (error) {
@@ -96,7 +117,7 @@ const updateStatus = async (appId, newStatus) => {
       })
     })
 
-    if (!res.ok) throw new Error('Błąd zmiany statusu')
+    if (!res.ok) throw new Error('Could not update application status')
 
     const updatedApp = await res.json()
     // Aktualizujemy obiekt lokalnie w tablicy
@@ -130,7 +151,7 @@ const createRefLink = async (application) => {
       const detail = Array.isArray(data.detail)
         ? data.detail.map(item => item.msg).join('; ')
         : data.detail
-      throw new Error(detail || 'Nie udało się wygenerować reflinka')
+      throw new Error(detail || 'Could not generate referral link')
     }
     generatedRefLinks.value[appId] = data.public_url
     refLinkClicks.value[appId] = data.clicks_count
@@ -148,67 +169,119 @@ onMounted(fetchApplications)
 
 <template>
   <div class="manage-box">
-    <h2>Zgłoszenia do Kampanii (ID: {{ campaignId }})</h2>
-
-    <div v-if="loading">Wczytywanie zgłoszeń...</div>
-
-    <div v-else-if="applications.length === 0" class="empty">
-      Brak zgłoszeń od twórców dla tej kampanii.
+    <div v-if="props.section !== 'submissions'" class="manage-heading">
+      <div><span class="manage-eyebrow">Campaign workspace</span><h2>Creators and applications</h2></div>
+      <span class="manage-count">{{ applications.length }} applications</span>
     </div>
 
-    <div v-else class="apps-list">
+    <div v-if="props.section !== 'submissions' && loading">Loading applications...</div>
+
+    <div v-else-if="props.section !== 'submissions' && applications.length === 0" class="empty">
+      No creator applications for this campaign.
+    </div>
+
+    <div v-else-if="props.section !== 'submissions'" class="creator-table">
+      <div class="creator-table-head">
+        <span>Creator</span><span>Language</span><span>Socials</span><span>Views</span><span>Earned</span><span>Join date</span><span>Status</span>
+      </div>
+      <div v-for="app in applications" :key="app.id" class="creator-table-row">
+        <div class="creator-identity">
+          <img v-if="app.creator_avatar_url" :src="app.creator_avatar_url" :alt="creatorName(app)" />
+          <span v-else class="creator-avatar">{{ creatorName(app).charAt(0).toUpperCase() }}</span>
+          <span><strong>{{ creatorName(app) }}</strong><small>{{ creatorHandle(app) }}</small></span>
+        </div>
+        <span class="creator-language">{{ creatorLanguages(app) }}</span>
+        <span class="creator-socials">
+          <i v-for="social in creatorSocials(app)" :key="social" :title="social">{{ social.slice(0, 1).toUpperCase() }}</i>
+          <em v-if="!creatorSocials(app).length">—</em>
+        </span>
+        <span class="creator-table-value">—</span>
+        <span class="creator-table-value">{{ app.proposed_rate ? `${app.proposed_rate} PLN` : '—' }}</span>
+        <span class="creator-table-value">{{ formatDate(app.created_at) }}</span>
+        <span :class="['status-badge', app.status]">{{ statusLabel(app.status) }}</span>
+
+        <div class="creator-row-details">
+          <div class="creator-facts">
+            <span><small>Content type</small><strong>{{ app.proposed_content_type || 'Not specified' }}</strong></span>
+            <span><small>Rate</small><strong>{{ app.proposed_rate ? `${app.proposed_rate} PLN` : 'Default' }}</strong></span>
+            <span><small>Applied</small><strong>{{ formatDate(app.created_at) }}</strong></span>
+          </div>
+          <p class="pitch-label">Creator pitch</p>
+          <blockquote class="pitch-text">{{ app.pitch || 'The creator did not add a pitch.' }}</blockquote>
+          <div v-if="app.feedback" class="feedback-info"><strong>Company feedback:</strong> {{ app.feedback }}</div>
+          <div v-if="app.status === 'pending'" class="card-actions">
+            <input v-model="feedbackTexts[app.id]" type="text" placeholder="Optional feedback or reason..." class="feedback-input" />
+            <div class="btn-group"><button @click="updateStatus(app.id, 'accepted')" class="btn btn-accept">✅ Accept</button><button @click="updateStatus(app.id, 'rejected')" class="btn btn-reject">❌ Reject</button></div>
+          </div>
+          <div v-if="app.status === 'accepted'" class="ref-link-actions">
+            <strong>Creator referral link</strong>
+            <div v-if="!generatedRefLinks[app.id]" class="ref-link-inline-form"><input v-model="refLinkUrls[app.id]" type="url" placeholder="https://destination-url.com" /><button class="btn btn-accept" :disabled="refLinkLoading[app.id] || !refLinkUrls[app.id]" @click="createRefLink(app)">{{ refLinkLoading[app.id] ? 'Generating...' : 'Generate referral link' }}</button></div>
+            <div v-if="refLinkErrors[app.id]" class="alert alert-danger">{{ refLinkErrors[app.id] }}</div>
+            <input v-if="generatedRefLinks[app.id]" :value="generatedRefLinks[app.id]" class="generated-ref-link" readonly @focus="$event.target.select()" />
+            <span v-if="generatedRefLinks[app.id]" class="ref-link-clicks">Unique clicks: {{ refLinkClicks[app.id] ?? '—' }}<template v-if="refLinkPayouts[app.id] != null"> · payout: {{ refLinkPayouts[app.id] }} PLN</template></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Legacy card content intentionally replaced by the compact creator table above. -->
+    <div v-if="false" class="apps-list creator-list">
       <div v-for="app in applications" :key="app.id" class="app-card">
         <div class="card-header">
-          <span><strong>Twórca ID:</strong> #{{ app.creator_id }}</span>
-          <span :class="['status-badge', app.status]">
-            {{ app.status }}
-          </span>
+          <div class="creator-identity">
+            <img v-if="app.creator_avatar_url" :src="app.creator_avatar_url" :alt="creatorName(app)" />
+            <span v-else class="creator-avatar">{{ creatorName(app).charAt(0).toUpperCase() }}</span>
+            <span><strong>{{ creatorName(app) }}</strong><small>{{ creatorHandle(app) }}</small></span>
+          </div>
+          <span :class="['status-badge', app.status]">{{ statusLabel(app.status) }}</span>
         </div>
 
         <div class="card-body">
-          <p><strong>Typ treści:</strong> {{ app.proposed_content_type || 'Brak' }}</p>
-          <p><strong>Proponowana stawka:</strong> {{ app.proposed_rate ? `${app.proposed_rate} PLN` : 'Domyślna' }}</p>
-          <p><strong>Pitch / Pomysł:</strong></p>
-          <blockquote class="pitch-text">{{ app.pitch || 'Brak opisu pomysłu' }}</blockquote>
+          <div class="creator-facts">
+            <span><small>Content type</small><strong>{{ app.proposed_content_type || 'Not specified' }}</strong></span>
+            <span><small>Rate</small><strong>{{ app.proposed_rate ? `${app.proposed_rate} PLN` : 'Default' }}</strong></span>
+            <span><small>Applied</small><strong>{{ formatDate(app.created_at) }}</strong></span>
+          </div>
+          <p class="pitch-label">Creator pitch</p>
+          <blockquote class="pitch-text">{{ app.pitch || 'The creator did not add a pitch.' }}</blockquote>
 
           <div v-if="app.feedback" class="feedback-info">
-            <strong>Uwagi marki:</strong> {{ app.feedback }}
+            <strong>Company feedback:</strong> {{ app.feedback }}
           </div>
         </div>
 
-        <!-- Panel akcji dla zgłoszeń oczekujących -->
+        <!-- Actions for pending applications -->
         <div v-if="app.status === 'pending'" class="card-actions">
           <input 
             v-model="feedbackTexts[app.id]" 
             type="text" 
-            placeholder="Opcjonalna uwaga / powód decyzji..."
+            placeholder="Optional feedback or reason..."
             class="feedback-input"
           />
           <div class="btn-group">
             <button @click="updateStatus(app.id, 'accepted')" class="btn btn-accept">
-              ✅ Zaakceptuj
+              ✅ Accept
             </button>
             <button @click="updateStatus(app.id, 'rejected')" class="btn btn-reject">
-              ❌ Odrzuć
+              ❌ Reject
             </button>
           </div>
         </div>
 
         <div v-if="app.status === 'accepted'" class="ref-link-actions">
-          <strong>Reflink dla twórcy</strong>
+          <strong>Creator referral link</strong>
           <div v-if="!generatedRefLinks[app.id]" class="ref-link-inline-form">
             
             <input
               v-model="refLinkUrls[app.id]"
               type="url"
-              placeholder="https://adres-docelowy.pl"
+              placeholder="https://destination-url.com"
             />
             <button
               class="btn btn-accept"
               :disabled="refLinkLoading[app.id] || !refLinkUrls[app.id]"
               @click="createRefLink(app)"
             >
-              {{ refLinkLoading[app.id] ? 'Generowanie...' : 'Wygeneruj reflink' }}
+              {{ refLinkLoading[app.id] ? 'Generating...' : 'Generate referral link' }}
             </button>
           </div>
           <div v-if="refLinkErrors[app.id]" class="alert alert-danger">{{ refLinkErrors[app.id] }}</div>
@@ -220,36 +293,64 @@ onMounted(fetchApplications)
             @focus="$event.target.select()"
           />
           <span v-if="generatedRefLinks[app.id]" class="ref-link-clicks">
-            Unikalne kliknięcia: {{ refLinkClicks[app.id] ?? '—' }}
-            <template v-if="refLinkPayouts[app.id] != null"> · do wypłaty: {{ refLinkPayouts[app.id] }} PLN</template>
+            Unique clicks: {{ refLinkClicks[app.id] ?? '—' }}
+            <template v-if="refLinkPayouts[app.id] != null"> · payout: {{ refLinkPayouts[app.id] }} PLN</template>
           </span>
         </div>
       </div>
     </div>
 
-    <section class="submissions-section">
-      <h2>Materiały do akceptacji</h2>
-      <div v-if="submissionsLoading">Wczytywanie materiałów...</div>
-      <div v-else-if="submissions.length === 0" class="empty">Brak wysłanych materiałów.</div>
-      <div v-else class="apps-list">
-        <div v-for="submission in submissions" :key="submission.id" class="app-card">
-          <div class="card-header">
-            <span><strong>Twórca ID:</strong> #{{ submission.creator_id }}</span>
-            <span :class="['status-badge', submission.status]">{{ submission.status }}</span>
+    <section v-if="props.section !== 'creators'" class="submissions-section">
+      <template v-if="submissionView === 'list'">
+        <div class="manage-heading submissions-heading"><div><span class="manage-eyebrow">Submission library</span><h2>Creator videos</h2><p class="submissions-intro">Choose a submission to inspect and evaluate it.</p></div><span class="manage-count">{{ submissions.length }} materials</span></div>
+        <div v-if="submissionsLoading" class="submission-state">Loading materials...</div>
+        <div v-else-if="submissions.length === 0" class="submission-state">No submitted materials.</div>
+        <div v-else class="submission-list">
+          <article v-for="submission in submissions" :key="submission.id" class="submission-list-item">
+            <div class="submission-list-identity">
+              <div class="creator-identity">
+                <img v-if="submission.creator_avatar_url" :src="submission.creator_avatar_url" :alt="creatorName(submission)" />
+                <span v-else class="creator-avatar">{{ creatorName(submission).charAt(0).toUpperCase() }}</span>
+                <span><strong>{{ creatorName(submission) }}</strong><small>{{ creatorHandle(submission) }}</small></span>
+              </div>
+              <span :class="['status-badge', submission.status]">{{ statusLabel(submission.status) }}</span>
+            </div>
+            <div class="submission-list-meta"><span>{{ submission.platform }}</span><span>{{ submission.content_type }}</span><span>{{ submission.views_count || 0 }} views</span><span>{{ formatDate(submission.created_at) }}</span></div>
+            <div class="submission-list-actions">
+              <a class="submission-link" :href="submission.video_url" target="_blank" rel="noreferrer">Open video <span>↗</span></a>
+              <button class="submission-review-button" @click="openSubmissionReview(submission)">Review submission <span>→</span></button>
+            </div>
+          </article>
+        </div>
+      </template>
+
+      <template v-else-if="selectedSubmission">
+        <div class="submission-review-heading">
+          <button class="submission-back-button" @click="closeSubmissionReview">← Back to submissions</button>
+          <span class="manage-eyebrow">Submission review</span>
+          <h2>{{ creatorName(selectedSubmission) }} · {{ selectedSubmission.content_type }}</h2>
+          <p>Review this creator video and choose the next status.</p>
+        </div>
+        <article class="submission-review-card">
+          <div class="submission-review-topline">
+            <div><strong>{{ creatorName(selectedSubmission) }}</strong><small>{{ creatorHandle(selectedSubmission) }}</small></div>
+            <span :class="['status-badge', selectedSubmission.status]">{{ statusLabel(selectedSubmission.status) }}</span>
           </div>
-          <p><strong>Materiał:</strong> <a :href="submission.video_url" target="_blank" rel="noreferrer">Otwórz w {{ submission.platform }}</a></p>
-          <p><strong>Typ:</strong> {{ submission.content_type }}</p>
-          <p v-if="submission.feedback"><strong>Uwagi:</strong> {{ submission.feedback }}</p>
-          <div v-if="submission.status !== 'approved'" class="card-actions">
-            <input v-model="submissionFeedback[submission.id]" class="feedback-input" placeholder="Uwagi dla twórcy..." />
+          <div class="submission-facts"><span><small>Platform</small><strong>{{ selectedSubmission.platform }}</strong></span><span><small>Type</small><strong>{{ selectedSubmission.content_type }}</strong></span><span><small>Views</small><strong>{{ selectedSubmission.views_count || 0 }}</strong></span><span><small>Submitted</small><strong>{{ formatDate(selectedSubmission.created_at) }}</strong></span></div>
+          <a class="submission-video-link" :href="selectedSubmission.video_url" target="_blank" rel="noreferrer">Open submitted video <span>↗</span></a>
+          <p v-if="selectedSubmission.feedback" class="submission-feedback"><strong>Previous feedback:</strong> {{ selectedSubmission.feedback }}</p>
+          <div v-if="selectedSubmission.status !== 'approved'" class="submission-review-actions">
+            <label for="submission-feedback">Feedback for creator</label>
+            <textarea id="submission-feedback" v-model="submissionFeedback[selectedSubmission.id]" rows="4" placeholder="Write feedback or explain the decision..."></textarea>
             <div class="btn-group">
-              <button class="btn btn-accept" @click="reviewSubmission(submission.id, 'approved')">Zaakceptuj materiał</button>
-              <button class="btn btn-reject" @click="reviewSubmission(submission.id, 'revision_requested')">Poproś o poprawki</button>
-              <button class="btn btn-reject" @click="reviewSubmission(submission.id, 'rejected')">Odrzuć</button>
+              <button class="btn btn-accept" @click="reviewSubmission(selectedSubmission.id, 'approved')">Approve video</button>
+              <button class="btn btn-revision" @click="reviewSubmission(selectedSubmission.id, 'revision_requested')">Request revision</button>
+              <button class="btn btn-reject" @click="reviewSubmission(selectedSubmission.id, 'rejected')">Reject video</button>
             </div>
           </div>
-        </div>
-      </div>
+          <div v-else class="submission-approved-note">This submission has already been approved.</div>
+        </article>
+      </template>
     </section>
   </div>
 </template>

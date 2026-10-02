@@ -1,6 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean, Text, Numeric, DateTime, JSON, ForeignKey
+import enum
+from sqlalchemy import Column, Integer, String, Boolean, Text, Numeric, DateTime, JSON, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+class CampaignStatus(str, enum.Enum):
+    DRAFT = "DRAFT"            # Szkic / Robocza
+    ACTIVE = "ACTIVE"          # Aktywna / W trakcie
+    PAUSED = "PAUSED"          # Wstrzymana
+    COMPLETED = "COMPLETED"      # Zakończona
+    CANCELLED = "CANCELLED"      # Anulowana
+
 
 class Campaign(Base):
     __tablename__ = "campaigns"
@@ -9,10 +19,12 @@ class Campaign(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    completed = Column(Boolean, default=False)
+    status = Column(SQLEnum(CampaignStatus), default=CampaignStatus.DRAFT, nullable=False, index=True)
+    completed = Column(Boolean, default=False)  # Możesz zachować dla wstecznej kompatybilności lub zastąpić stanem COMPLETED
     is_private = Column(Boolean, default=False)  # Zamknięta kampania (tylko dla zaproszonych)
     cover_image_url = Column(String(1000), nullable=True)
     gallery_image_urls = Column(JSON, nullable=True)
+    social_media_links = Column(JSON, nullable=True)
 
     # --- Klucz Obcy i Relacja z Firmą ---
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
@@ -22,6 +34,8 @@ class Campaign(Base):
     applications = relationship("CampaignApplication", back_populates="campaign", cascade="all, delete-orphan")
     submissions = relationship("CampaignSubmission", back_populates="campaign", cascade="all, delete-orphan")
     ref_links = relationship("CampaignRefLink", back_populates="campaign", cascade="all, delete-orphan")
+    game_keys = relationship("GameKey", back_populates="campaign", cascade="all, delete-orphan")
+    key_requests = relationship("KeyRequest", back_populates="campaign", cascade="all, delete-orphan")
 
     # --- Informacje o produkcie i wytyczne ---
     product_description = Column(Text, nullable=True)
@@ -34,8 +48,9 @@ class Campaign(Base):
     budget_per_time_unit = Column(Numeric(10, 2), nullable=True)
     budget_per_language = Column(JSON, nullable=True)
 
-    # --- Język i zasady zgłoszeń ---
+    # --- Język, tagi i zasady zgłoszeń ---
     languages = Column(JSON, nullable=True)
+    tags = Column(JSON, nullable=True)
     max_videos_per_creator = Column(Integer, nullable=True)
     max_submissions_per_day = Column(Integer, nullable=True)
 

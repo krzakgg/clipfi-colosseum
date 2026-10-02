@@ -30,3 +30,5 @@ class Creator(Base):
     applications = relationship("CampaignApplication", back_populates="creator", cascade="all, delete-orphan")
     submissions = relationship("CampaignSubmission", back_populates="creator", cascade="all, delete-orphan")
     ref_links = relationship("CampaignRefLink", back_populates="creator", cascade="all, delete-orphan")
+    game_keys = relationship("GameKey", back_populates="assigned_to_creator")
+    key_requests = relationship("KeyRequest", back_populates="creator", cascade="all, delete-orphan")

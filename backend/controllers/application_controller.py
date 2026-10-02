@@ -10,6 +10,17 @@ from schemas import ApplicationCreate, ApplicationStatusUpdate, ApplicationRespo
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
+
+def _application_response(application, creator):
+    return {
+        **{column.name: getattr(application, column.name) for column in CampaignApplication.__table__.columns},
+        "creator_username": creator.username,
+        "creator_full_name": creator.full_name,
+        "creator_avatar_url": creator.avatar_url,
+        "creator_languages": creator.languages,
+        "creator_platform_stats": creator.platform_stats,
+    }
+
 # 1. Twórca składa aplikację do kampanii
 @router.post("", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
 async def create_application(app_data: ApplicationCreate, db: AsyncSession = Depends(get_db)):
@@ -38,7 +49,7 @@ async def create_application(app_data: ApplicationCreate, db: AsyncSession = Dep
     db.add(new_app)
     await db.commit()
     await db.refresh(new_app)
-    return new_app
+    return _application_response(new_app, creator)
 
 # 2. Marka pobiera listę zgłoszeń dla danej kampanii
 @router.get("/campaign/{campaign_id}", response_model=List[ApplicationResponse])
@@ -54,11 +65,33 @@ async def get_campaign_applications(
         raise HTTPException(status_code=403, detail="Nie masz dostępu do zgłoszeń tej kampanii")
 
     result = await db.execute(
-        select(CampaignApplication)
+        select(CampaignApplication, Creator)
+        .join(Creator, Creator.id == CampaignApplication.creator_id)
         .where(CampaignApplication.campaign_id == campaign_id)
         .order_by(CampaignApplication.created_at.desc())
     )
-    return result.scalars().all()
+    return [_application_response(application, creator) for application, creator in result.all()]
+
+
+@router.get("/creator/{creator_id}/campaign/{campaign_id}", response_model=ApplicationResponse)
+async def get_creator_campaign_application(
+    creator_id: int,
+    campaign_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CampaignApplication, Creator)
+        .join(Creator, Creator.id == CampaignApplication.creator_id)
+        .where(
+            CampaignApplication.creator_id == creator_id,
+            CampaignApplication.campaign_id == campaign_id,
+        )
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Twórca nie należy do tej kampanii")
+    application, creator = row
+    return _application_response(application, creator)
 
 # 3. Marka akceptuje lub odrzuca zgłoszenie (oraz dodaje uwagi)
 @router.patch("/{application_id}/status", response_model=ApplicationResponse)
@@ -84,4 +117,5 @@ async def update_application_status(
 
     await db.commit()
     await db.refresh(app)
-    return app
+    creator = await db.get(Creator, app.creator_id)
+    return _application_response(app, creator)

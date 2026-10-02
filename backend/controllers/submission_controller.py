@@ -13,6 +13,17 @@ from schemas import CampaignSubmissionCreate, CampaignSubmissionReview, Campaign
 
 router = APIRouter(prefix="/api/submissions", tags=["submissions"])
 
+
+def _submission_response(submission, creator):
+    return {
+        **{column.name: getattr(submission, column.name) for column in CampaignSubmission.__table__.columns},
+        "creator_username": creator.username,
+        "creator_full_name": creator.full_name,
+        "creator_avatar_url": creator.avatar_url,
+        "creator_languages": creator.languages,
+        "creator_platform_stats": creator.platform_stats,
+    }
+
 # Akceptacja lub odrzucenie zgłoszenia przez markę
 @router.patch("/{submission_id}/review", response_model=CampaignSubmissionResponse)
 async def review_submission(
@@ -43,7 +54,8 @@ async def review_submission(
 
     await db.commit()
     await db.refresh(submission)
-    return submission
+    creator = await db.get(Creator, submission.creator_id)
+    return _submission_response(submission, creator)
 
 
 # Aktualizacja wyświetleń i automatyczne obliczenie wypłaty
@@ -126,7 +138,7 @@ async def create_submission(
     db.add(new_submission)
     await db.commit()
     await db.refresh(new_submission)
-    return new_submission
+    return _submission_response(new_submission, creator)
 
 
 @router.get("/campaign/{campaign_id}", response_model=List[CampaignSubmissionResponse])
@@ -142,8 +154,9 @@ async def get_campaign_submissions(
         raise HTTPException(status_code=403, detail="Nie masz dostępu do materiałów tej kampanii")
 
     result = await db.execute(
-        select(CampaignSubmission)
+        select(CampaignSubmission, Creator)
+        .join(Creator, Creator.id == CampaignSubmission.creator_id)
         .where(CampaignSubmission.campaign_id == campaign_id)
         .order_by(CampaignSubmission.created_at.desc())
     )
-    return result.scalars().all()
+    return [_submission_response(submission, creator) for submission, creator in result.all()]

@@ -20,6 +20,7 @@ from controllers import (
     submission_router,
     reflink_router,
     auth_router,
+    game_key_router,
 )
 import models  # Wymagane, aby SQLAlchemy załadowało definicje tabel przed create_all
 
@@ -58,12 +59,78 @@ async def lifespan(app: FastAPI):
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
                 await conn.execute(text(
+                    "DO $$ BEGIN "
+                    "CREATE TYPE campaignstatus AS ENUM "
+                    "('DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'); "
+                    "EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "status campaignstatus NOT NULL DEFAULT 'DRAFT'"
+                ))
+                await conn.execute(text(
                     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
                     "cover_image_url VARCHAR(1000)"
                 ))
                 await conn.execute(text(
                     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
                     "gallery_image_urls JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "social_media_links JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "budget_per_time_unit NUMERIC(10, 2)"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "budget_per_language JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "tags JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "max_videos_per_creator INTEGER"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "max_submissions_per_day INTEGER"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "platform_requirements JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "payout_by_content_type JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "payout_per_views NUMERIC(10, 2)"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "views_unit_step INTEGER DEFAULT 1000"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "payout_per_click NUMERIC(10, 2)"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "start_date TIMESTAMP WITH TIME ZONE"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "end_date TIMESTAMP WITH TIME ZONE"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "rollover_remaining_budget BOOLEAN DEFAULT FALSE"
                 ))
                 await conn.execute(text(
                     "ALTER TABLE companies ADD COLUMN IF NOT EXISTS "
@@ -116,6 +183,7 @@ app.include_router(creator_router)
 app.include_router(submission_router)
 app.include_router(reflink_router)
 app.include_router(auth_router)
+app.include_router(game_key_router)
 
 
 @app.post("/api/uploads/image")
