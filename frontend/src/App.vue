@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import CampaignList from './views/Campaign/CampaignList.vue'
 import CreateCampaign from './views/Campaign/CreateCampaign.vue'
 import EditCampaign from './views/Campaign/EditCampaign.vue'
@@ -10,8 +10,19 @@ const session = ref(JSON.parse(localStorage.getItem('waggi_session') || 'null'))
 const currentTab = ref('list')
 const editCampaignId = ref(null)
 const detailsCampaignId = ref(null)
+const campaigns = ref([])
+const selectedCampaignId = ref('')
 const selectedCampaignTitle = ref('')
 const detailsSection = ref('about')
+
+const fetchCampaigns = async () => {
+  try {
+    const response = await fetch('http://localhost:8000/api/campaigns')
+    if (response.ok) campaigns.value = await response.json()
+  } catch (error) {
+    console.error('Failed to load campaigns for the sidebar.', error)
+  }
+}
 
 // Open the campaign editor.
 const handleEditCampaign = (id) => {
@@ -26,9 +37,15 @@ const handleCampaignCreated = () => {
 
 const handleViewCampaign = (id) => {
   detailsCampaignId.value = id
+  selectedCampaignId.value = String(id)
   selectedCampaignTitle.value = ''
   detailsSection.value = 'about'
   currentTab.value = 'details'
+}
+
+const handleCampaignSelection = () => {
+  if (!selectedCampaignId.value) return
+  handleViewCampaign(Number(selectedCampaignId.value))
 }
 
 const handleCampaignLoaded = (title) => {
@@ -58,6 +75,8 @@ const logout = () => {
   localStorage.removeItem('waggi_session')
   session.value = null
 }
+
+onMounted(fetchCampaigns)
 </script>
 
 <template>
@@ -78,8 +97,11 @@ const logout = () => {
             <span class="nav-icon">◫</span>
             <span>Games</span>
           </button>
-          <select class="sidebar-game-select" aria-label="Select game">
-            <option>{{ selectedCampaignTitle || 'Select campaign' }}</option>
+          <select v-model="selectedCampaignId" class="sidebar-game-select" aria-label="Select campaign" @change="handleCampaignSelection">
+            <option value="">Select campaign</option>
+            <option v-for="campaign in campaigns" :key="campaign.id" :value="String(campaign.id)">
+              #{{ campaign.id }} {{ campaign.title }}
+            </option>
           </select>
         </div>
 
@@ -92,8 +114,8 @@ const logout = () => {
           </button>
           <button :class="{ active: currentTab === 'details' && detailsSection === 'creators' }" @click="openCampaignSection('creators')"><span class="nav-icon">♧</span><span>Creators</span><span class="nav-chevron">›</span></button>
           <button :class="{ active: currentTab === 'details' && detailsSection === 'submissions' }" @click="openCampaignSection('submissions')"><span class="nav-icon">⇧</span><span>Submissions</span><span class="nav-chevron">›</span></button>
-          <button @click="currentTab = 'list'"><span class="nav-icon">□</span><span>Requests</span><span class="nav-chevron">›</span></button>
-          <button @click="currentTab = 'list'"><span class="nav-icon">⚿</span><span>Keys</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'requests' }" @click="openCampaignSection('requests')"><span class="nav-icon">□</span><span>Key requests</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'keys' }" @click="openCampaignSection('keys')"><span class="nav-icon">⚿</span><span>Game keys</span><span class="nav-chevron">›</span></button>
           <button @click="currentTab = 'list'"><span class="nav-icon">▤</span><span>Budget</span><span class="nav-chevron">›</span></button>
           <button :class="{ active: currentTab === 'details' && detailsSection === 'details' }" @click="openCampaignSection('details')"><span class="nav-icon">⊙</span><span>Details</span><span class="nav-chevron">⌄</span></button>
           <button @click="currentTab = 'list'"><span class="nav-icon">♧</span><span>Notifications</span><span class="nav-chevron">›</span></button>
@@ -143,6 +165,7 @@ const logout = () => {
 
         <CreateCampaign 
           v-else-if="currentTab === 'create'" 
+          :session="session"
           @campaign-created="handleCampaignCreated"
         />
 
@@ -151,7 +174,7 @@ const logout = () => {
             <label>Selected campaign ID: </label>
             <input type="number" v-model.number="editCampaignId" min="1" />
           </div>
-          <EditCampaign :campaign-id="editCampaignId" />
+          <EditCampaign :campaign-id="editCampaignId" :session="session" />
         </div>
 
       </main>

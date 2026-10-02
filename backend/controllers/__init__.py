@@ -5,6 +5,7 @@ from .creator_controller import router as creator_router
 from .submission_controller import router as submission_router
 from .reflink_controller import router as reflink_router
 from .auth_controller import router as auth_router
+from .game_key_controller import router as game_key_router
 
 __all__ = [
     "application_router",
@@ -14,4 +15,5 @@ __all__ = [
     "submission_router",
     "reflink_router",
     "auth_router",
+    "game_key_router",
 ]

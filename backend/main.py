@@ -20,6 +20,7 @@ from controllers import (
     submission_router,
     reflink_router,
     auth_router,
+    game_key_router,
 )
 import models  # Wymagane, aby SQLAlchemy załadowało definicje tabel przed create_all
 
@@ -86,6 +87,10 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(
                     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
                     "budget_per_language JSON"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
+                    "tags JSON"
                 ))
                 await conn.execute(text(
                     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "
@@ -178,6 +183,7 @@ app.include_router(creator_router)
 app.include_router(submission_router)
 app.include_router(reflink_router)
 app.include_router(auth_router)
+app.include_router(game_key_router)
 
 
 @app.post("/api/uploads/image")

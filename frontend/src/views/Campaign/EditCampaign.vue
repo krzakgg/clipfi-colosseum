@@ -1,11 +1,16 @@
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { uploadImages } from '../../utils/uploadImage'
+import RichTextEditor from '../../components/RichTextEditor.vue'
 
 const props = defineProps({
   campaignId: {
     type: Number,
     default: 1
+  },
+  session: {
+    type: Object,
+    default: null
   }
 })
 
@@ -18,6 +23,26 @@ const coverFile = ref(null)
 const galleryFiles = ref([])
 const coverPreview = ref('')
 const galleryPreviews = ref([])
+const currentStep = ref(1)
+const totalSteps = 4
+const formRef = ref(null)
+const isCompanySession = computed(() => props.session?.account_type === 'company')
+const currentCompanyId = computed(() => Number(props.session?.user?.id || 0))
+const AVAILABLE_LANGUAGES = ['PL', 'EN', 'DE', 'FR', 'ES', 'IT', 'NL', 'PT', 'CS', 'SK', 'TR', 'HU', 'RO', 'UA', 'RU', 'EL', 'FI', 'SV', 'DA', 'NO', 'IS', 'JA', 'KO', 'ZH', 'AR', 'HE', 'ID', 'MS', 'TH', 'VI', 'BN', 'HI', 'UR']
+const normalizeLanguageValue = (value) => value ? String(value).trim().toUpperCase() : ''
+const normalizeTagValue = (value) => String(value || '').trim()
+const getUniqueLanguages = (values = []) => [...new Set((values || []).map(normalizeLanguageValue).filter(Boolean))]
+const getUniqueTags = (values = []) => [...new Set((values || []).map(normalizeTagValue).filter(Boolean))]
+const splitTagInput = (value) => value.split(',').map(normalizeTagValue).filter(Boolean)
+
+const goToNextStep = () => {
+  if (!formRef.value?.reportValidity()) return
+  if (currentStep.value < totalSteps) currentStep.value += 1
+}
+
+const goToPreviousStep = () => {
+  if (currentStep.value > 1) currentStep.value -= 1
+}
 
 const parseJsonField = (value, label) => {
   if (!value || !value.trim()) return null
@@ -56,7 +81,9 @@ const form = reactive({
   budget_per_creator: 0,
   budget_per_time_unit: 0,
   budget_per_language_str: '',
-  languages_str: '',
+  languages: ['PL'],
+  tags: [],
+  tagInput: '',
   min_views: 0,
   min_subscribers: 0,
   max_videos_per_creator: 1,
@@ -70,6 +97,7 @@ const form = reactive({
   social_media_links: {
     instagram: '',
     twitter: '',
+    steam: '',
     website: '',
     youtube: ''
   },
@@ -80,6 +108,36 @@ const form = reactive({
   views_unit_step: 1000,
   payout_per_click: 0
 })
+
+const toggleLanguage = (language) => {
+  const normalized = normalizeLanguageValue(language)
+  if (!normalized) return
+
+  const current = new Set(form.languages)
+  if (current.has(normalized)) current.delete(normalized)
+  else current.add(normalized)
+
+  form.languages = [...current].sort((a, b) => AVAILABLE_LANGUAGES.indexOf(a) - AVAILABLE_LANGUAGES.indexOf(b))
+}
+
+const addTag = () => {
+  const nextTags = splitTagInput(form.tagInput)
+  if (!nextTags.length) return
+
+  form.tags = getUniqueTags([...form.tags, ...nextTags])
+  form.tagInput = ''
+}
+
+const handleTagInputKeydown = (event) => {
+  if (event.key === 'Enter' || event.key === ',') {
+    event.preventDefault()
+    addTag()
+  }
+}
+
+const removeTag = (tag) => {
+  form.tags = form.tags.filter(item => item !== tag)
+}
 
 const loadCampaign = async () => {
   if (!props.campaignId) return
@@ -92,7 +150,7 @@ const loadCampaign = async () => {
 
     const data = await res.json()
 
-    form.company_id = data.company_id
+    form.company_id = isCompanySession.value && currentCompanyId.value ? currentCompanyId.value : Number(data.company_id || 0)
     form.title = data.title || ''
     form.description = data.description || ''
     form.status = data.status || 'DRAFT'
@@ -106,7 +164,9 @@ const loadCampaign = async () => {
     form.budget_per_creator = data.budget_per_creator || 0
     form.budget_per_time_unit = data.budget_per_time_unit || 0
     form.budget_per_language_str = stringifyJson(data.budget_per_language)
-    form.languages_str = data.languages ? data.languages.join(', ') : ''
+    form.languages = getUniqueLanguages(data.languages || ['PL'])
+    form.tags = getUniqueTags(data.tags || [])
+    form.tagInput = ''
     form.min_views = data.min_views || 0
     form.min_subscribers = data.min_subscribers || 0
     form.max_videos_per_creator = data.max_videos_per_creator || 1
@@ -120,6 +180,7 @@ const loadCampaign = async () => {
     const links = data.social_media_links || {}
     form.social_media_links.instagram = links.instagram || ''
     form.social_media_links.twitter = links.twitter || ''
+    form.social_media_links.steam = links.steam || ''
     form.social_media_links.website = links.website || ''
     form.social_media_links.youtube = links.youtube || ''
 
@@ -140,8 +201,17 @@ const loadCampaign = async () => {
 
 watch(() => props.campaignId, loadCampaign)
 
+const syncSessionCompany = () => {
+  if (isCompanySession.value && currentCompanyId.value) {
+    form.company_id = currentCompanyId.value
+  }
+}
+
+watch(() => props.session, syncSessionCompany, { immediate: true })
+
 onMounted(async () => {
   await fetchCompanies()
+  syncSessionCompany()
   await loadCampaign()
 })
 
@@ -158,11 +228,12 @@ const handleUpdate = async () => {
     const cleanSocialLinks = {}
     if (form.social_media_links.instagram.trim()) cleanSocialLinks.instagram = form.social_media_links.instagram.trim()
     if (form.social_media_links.twitter.trim()) cleanSocialLinks.twitter = form.social_media_links.twitter.trim()
+    if (form.social_media_links.steam.trim()) cleanSocialLinks.steam = form.social_media_links.steam.trim()
     if (form.social_media_links.website.trim()) cleanSocialLinks.website = form.social_media_links.website.trim()
     if (form.social_media_links.youtube.trim()) cleanSocialLinks.youtube = form.social_media_links.youtube.trim()
 
     const payload = {
-      company_id: parseInt(form.company_id),
+      company_id: isCompanySession.value ? currentCompanyId.value : Number(form.company_id || 0),
       title: form.title,
       description: form.description || null,
       status: form.status,
@@ -176,7 +247,8 @@ const handleUpdate = async () => {
       budget_per_creator: form.budget_per_creator ? parseFloat(form.budget_per_creator) : null,
       budget_per_time_unit: form.budget_per_time_unit ? parseFloat(form.budget_per_time_unit) : null,
       budget_per_language: parseJsonField(form.budget_per_language_str, 'Budżet według języka'),
-      languages: form.languages_str.split(',').map(l => l.trim().toUpperCase()).filter(Boolean),
+      languages: getUniqueLanguages(form.languages),
+      tags: getUniqueTags(form.tags),
       min_views: parseInt(form.min_views) || 0,
       min_subscribers: parseInt(form.min_subscribers) || 0,
       max_videos_per_creator: form.max_videos_per_creator ? parseInt(form.max_videos_per_creator) : null,
@@ -245,36 +317,43 @@ const handleGallerySelected = (event) => {
 
 <template>
   <div class="edit-container">
-    <h2>Edycja kampanii (ID: {{ campaignId }})</h2>
+    <h2>Edit campaign (ID: {{ campaignId }})</h2>
 
-    <div v-if="fetching">Wczytywanie danych kampanii...</div>
+    <div v-if="fetching">Loading campaign data...</div>
 
     <template v-else>
       <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
       <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
 
-      <form @submit.prevent="handleUpdate" class="campaign-form">
-        <fieldset>
-          <legend>Podstawowe dane</legend>
+      <div class="campaign-steps" aria-label="Campaign edit progress">
+        <span v-for="step in totalSteps" :key="step" :class="{ active: currentStep === step, complete: currentStep > step }">
+          {{ step }}
+        </span>
+      </div>
+
+      <form ref="formRef" @submit.prevent="handleUpdate" class="campaign-form">
+        <fieldset v-if="currentStep === 1">
+          <legend>Basic data</legend>
           
           <div class="form-group">
-            <label>Przypisana firma *</label>
-            <select v-model="form.company_id" required>
-              <option value="" disabled>-- Wybierz firmę --</option>
+            <label>Company *</label>
+            <select v-if="!isCompanySession" v-model="form.company_id" required>
+              <option value="" disabled>-- Select a company --</option>
               <option v-for="company in companies" :key="company.id" :value="company.id">
                 {{ company.name }} (ID: {{ company.id }})
               </option>
             </select>
+            <input v-else :value="session?.user?.name || 'Current company'" type="text" readonly />
           </div>
 
           <div class="form-group">
-            <label>Tytuł kampanii</label>
+            <label>Campaign title</label>
             <input v-model="form.title" type="text" required />
           </div>
           
           <div class="grid-2">
             <div class="form-group">
-              <label>Status kampanii</label>
+              <label>Campaign status</label>
               <select v-model="form.status">
                 <option value="DRAFT">Szkic</option>
                 <option value="ACTIVE">Aktywna</option>
@@ -284,96 +363,134 @@ const handleGallerySelected = (event) => {
               </select>
             </div>
             <div class="form-group checkbox-group">
-              <label><input type="checkbox" v-model="form.is_private" /> Kampania prywatna</label>
+              <label><input type="checkbox" v-model="form.is_private" /> Private campaign</label>
             </div>
           </div>
 
           <div class="form-group">
-            <label>Opis kampanii</label>
-            <textarea v-model="form.description" rows="3"></textarea>
+            <RichTextEditor v-model="form.description" label="Campaign description" placeholder="Describe the campaign goal..." />
           </div>
 
           <div class="form-group">
-            <label>Obraz tytułowy z komputera</label>
+            <RichTextEditor v-model="form.brand_guidelines" label="Brand guidelines" placeholder="Describe logo usage, colors, tone and content rules..." />
+          </div>
+
+          <div class="form-group">
+            <label>Cover image from device</label>
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" @change="handleCoverSelected" />
             <img v-if="coverPreview" class="image-preview" :src="coverPreview" alt="Podgląd nowego obrazu tytułowego" />
-            <label>Lub wklej URL</label>
+            <label>Or paste URL</label>
             <input v-model="form.cover_image_url" type="url" placeholder="https://.../cover.jpg" />
           </div>
 
           <div class="form-group">
-            <label>Galeria z komputera</label>
+            <label>Gallery from device</label>
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple @change="handleGallerySelected" />
-            <small>Możesz wybrać do 20 obrazów jednocześnie.</small>
+            <small>You can select up to 20 images at once.</small>
             <div v-if="galleryPreviews.length" class="image-preview-grid">
               <img v-for="preview in galleryPreviews" :key="preview" class="image-preview" :src="preview" alt="Podgląd nowego obrazu galerii" />
             </div>
-            <label>Lub wklej URL-e po przecinku</label>
+            <label>Or paste URLs separated by commas</label>
             <input v-model="form.gallery_image_urls_str" type="text" placeholder="https://.../1.jpg, https://.../2.jpg" />
           </div>
         </fieldset>
 
-        <fieldset>
-          <legend>Budżet</legend>
+        <fieldset v-if="currentStep === 2">
+          <legend>Budget</legend>
           <div class="grid-2">
             <div class="form-group">
-              <label>Całkowity budżet (PLN)</label>
+              <label>Total budget (PLN)</label>
               <input v-model="form.total_budget" type="number" step="0.01" min="0" max="9999999999.99" required />
             </div>
             <div class="form-group">
-              <label>Budżet na twórcę (PLN)</label>
+              <label>Budget per creator (PLN)</label>
               <input v-model="form.budget_per_creator" type="number" step="0.01" min="0" max="99999999.99" />
             </div>
             <div class="form-group">
-              <label>Budżet na jednostkę czasu (PLN)</label>
+              <label>Budget per time unit (PLN)</label>
               <input v-model="form.budget_per_time_unit" type="number" step="0.01" min="0" max="99999999.99" />
             </div>
           </div>
           <div class="form-group">
-            <label>Budżet według języka (JSON)</label>
+            <label>Budget by language (JSON)</label>
             <textarea v-model="form.budget_per_language_str" rows="2"></textarea>
           </div>
           <div class="form-group">
-            <label>Krok rozliczenia wyświetleń</label>
+            <label>Views payout step</label>
             <input v-model="form.views_unit_step" type="number" min="1" />
           </div>
         </fieldset>
 
-        <fieldset>
-          <legend>Wymagania i materiały</legend>
+        <fieldset v-if="currentStep === 3">
+          <legend>Requirements and materials</legend>
+          <div class="form-group">
+            <label>Campaign languages</label>
+            <div class="chip-list">
+              <button
+                v-for="language in AVAILABLE_LANGUAGES"
+                :key="language"
+                type="button"
+                class="chip-button"
+                :class="{ active: form.languages.includes(language) }"
+                @click="toggleLanguage(language)"
+              >
+                {{ language }}
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Campaign tags</label>
+            <div class="tag-input-row">
+              <input v-model="form.tagInput" type="text" placeholder="e.g. gaming, beauty" @keydown="handleTagInputKeydown" />
+              <button type="button" class="btn-secondary" @click="addTag">Add</button>
+            </div>
+            <div v-if="form.tags.length" class="chip-list compact">
+              <span v-for="tag in form.tags" :key="tag" class="tag-chip">
+                {{ tag }}
+                <button type="button" class="tag-chip-remove" @click="removeTag(tag)">×</button>
+              </span>
+            </div>
+          </div>
+
           <div class="grid-2">
             <div class="form-group">
-              <label>Maksymalna liczba filmów na twórcę</label>
+              <label>Maximum videos per creator</label>
               <input v-model="form.max_videos_per_creator" type="number" min="1" />
             </div>
             <div class="form-group">
-              <label>Maksymalna liczba zgłoszeń dziennie</label>
-              <input v-model="form.max_submissions_per_day" type="number" min="1" placeholder="Bez limitu" />
+              <label>Maximum submissions per day</label>
+              <input v-model="form.max_submissions_per_day" type="number" min="1" placeholder="No limit" />
             </div>
           </div>
           <div class="form-group">
-            <label>Wymagania platform (JSON)</label>
+            <label>Platform requirements (JSON)</label>
             <textarea v-model="form.platform_requirements_str" rows="2"></textarea>
           </div>
           <div class="grid-2">
             <div class="form-group">
-              <label>Data rozpoczęcia</label>
+              <label>Start date</label>
               <input v-model="form.start_date" type="datetime-local" />
             </div>
             <div class="form-group">
-              <label>Data zakończenia</label>
+              <label>End date</label>
               <input v-model="form.end_date" type="datetime-local" />
             </div>
           </div>
           <div class="form-group checkbox-group">
-            <label><input type="checkbox" v-model="form.rollover_remaining_budget" /> Przenoś niewykorzystany budżet</label>
+            <label><input type="checkbox" v-model="form.rollover_remaining_budget" /> Carry over unused budget</label>
           </div>
         </fieldset>
 
-        <fieldset>
-          <legend>Linki i Social Media</legend>
+        <fieldset v-if="currentStep === 4">
+          <legend>Links and social media</legend>
           
           <div class="grid-2">
+            <div class="form-group">
+              <label>Steam URL</label>
+              <input v-model="form.social_media_links.steam" type="url" placeholder="https://store.steampowered.com/app/..." />
+            </div>
+
             <div class="form-group">
               <label>Instagram URL</label>
               <input v-model="form.social_media_links.instagram" type="url" placeholder="https://instagram.com/..." />
@@ -387,7 +504,7 @@ const handleGallerySelected = (event) => {
 
           <div class="grid-2">
             <div class="form-group">
-              <label>Strona WWW</label>
+              <label>Website</label>
               <input v-model="form.social_media_links.website" type="url" placeholder="https://mojastrona.pl" />
             </div>
 
@@ -399,9 +516,13 @@ const handleGallerySelected = (event) => {
 
         </fieldset>
 
-        <button type="submit" class="btn-submit" :disabled="loading">
-          {{ loading ? 'Zapisywanie...' : 'Zapisz zmiany' }}
-        </button>
+        <div class="campaign-navigation">
+          <button v-if="currentStep > 1" type="button" class="btn-secondary" @click="goToPreviousStep">Back</button>
+          <button v-if="currentStep < totalSteps" type="button" class="btn-submit" @click="goToNextStep">Next</button>
+          <button v-else type="submit" class="btn-submit" :disabled="loading">
+            {{ loading ? 'Saving...' : 'Save changes' }}
+          </button>
+        </div>
       </form>
     </template>
   </div>

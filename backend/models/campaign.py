@@ -34,6 +34,8 @@ class Campaign(Base):
     applications = relationship("CampaignApplication", back_populates="campaign", cascade="all, delete-orphan")
     submissions = relationship("CampaignSubmission", back_populates="campaign", cascade="all, delete-orphan")
     ref_links = relationship("CampaignRefLink", back_populates="campaign", cascade="all, delete-orphan")
+    game_keys = relationship("GameKey", back_populates="campaign", cascade="all, delete-orphan")
+    key_requests = relationship("KeyRequest", back_populates="campaign", cascade="all, delete-orphan")
 
     # --- Informacje o produkcie i wytyczne ---
     product_description = Column(Text, nullable=True)
@@ -46,8 +48,9 @@ class Campaign(Base):
     budget_per_time_unit = Column(Numeric(10, 2), nullable=True)
     budget_per_language = Column(JSON, nullable=True)
 
-    # --- Język i zasady zgłoszeń ---
+    # --- Język, tagi i zasady zgłoszeń ---
     languages = Column(JSON, nullable=True)
+    tags = Column(JSON, nullable=True)
     max_videos_per_creator = Column(Integer, nullable=True)
     max_submissions_per_day = Column(Integer, nullable=True)
 

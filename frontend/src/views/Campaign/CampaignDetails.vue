@@ -6,6 +6,8 @@ import CreatorsView from './sections/CreatorsView.vue'
 import GuidelinesView from './sections/GuidelinesView.vue'
 import PressKitView from './sections/PressKitView.vue'
 import SubmissionsView from './sections/SubmissionsView.vue'
+import KeyRequestsView from './sections/KeyRequestsView.vue'
+import GameKeysView from './sections/GameKeysView.vue'
 
 const props = defineProps({ campaignId: { type: Number, required: true }, session: { type: Object, required: true }, initialSection: { type: String, default: 'about' } })
 const emit = defineEmits(['back', 'edit-campaign', 'campaign-loaded'])
@@ -31,6 +33,7 @@ const canDownloadPressKit = computed(() => {
 })
 const pressKitDownloadUrl = computed(() => canDownloadPressKit.value ? `http://localhost:8000/api/campaigns/${props.campaignId}/press-kit/download` : '')
 const guidelineItems = computed(() => (campaign.value?.brand_guidelines || '').split(/\r?\n+/).map(item => item.replace(/^[-•*]\s*/, '').trim()).filter(Boolean))
+const brandGuidelines = computed(() => campaign.value?.brand_guidelines || '')
 const talkingPoints = computed(() => Object.entries(campaign.value?.platform_requirements || {}).map(([platform, values]) => {
   const details = typeof values === 'object' && values !== null ? Object.entries(values).map(([key, value]) => `${key}: ${value}`).join(', ') : String(values)
   return `${platform}: ${details}`
@@ -88,8 +91,21 @@ watch(() => props.initialSection, section => { activeSection.value = section }, 
     <div v-if="loading" class="state-msg">Loading campaign details...</div>
     <div v-else-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
     <template v-else-if="campaign">
-      <section class="campaign-heading"><div><span class="eyebrow">Kampania #{{ campaign.id }}</span><div class="campaign-title-row"><h1>{{ campaign.title }}</h1><span :class="['status-badge', `status-${(campaign.status || 'DRAFT').toLowerCase()}`]">{{ campaign.status || 'DRAFT' }}</span></div><p>{{ campaign.description || 'No short campaign description.' }}</p></div><div class="campaign-heading-meta"><span>{{ formatDate(campaign.start_date) }} - {{ formatDate(campaign.end_date) }}</span><span :class="['badge', campaign.is_private ? 'badge-private' : 'badge-public']">{{ campaign.is_private ? 'Prywatna' : 'Publiczna' }}</span></div></section>
-      <nav v-if="!['creators', 'submissions'].includes(activeSection)" class="campaign-tabs" aria-label="Sekcje kampanii">
+      <section class="campaign-heading">
+        <div class="campaign-heading-copy">
+          <span class="eyebrow">Kampania #{{ campaign.id }}</span>
+          <div class="campaign-title-row">
+            <h1>{{ campaign.title }}</h1>
+            <span :class="['status-badge', `status-${(campaign.status || 'DRAFT').toLowerCase()}`]">{{ campaign.status || 'DRAFT' }}</span>
+          </div>
+          <p class="campaign-heading-subtitle">{{ campaign.game_name || campaign.product_name || 'Campaign details' }}</p>
+        </div>
+        <div class="campaign-heading-meta">
+          <span>{{ formatDate(campaign.start_date) }} - {{ formatDate(campaign.end_date) }}</span>
+          <span :class="['badge', campaign.is_private ? 'badge-private' : 'badge-public']">{{ campaign.is_private ? 'Prywatna' : 'Publiczna' }}</span>
+        </div>
+      </section>
+      <nav v-if="!['creators', 'submissions', 'requests', 'keys'].includes(activeSection)" class="campaign-tabs" aria-label="Sekcje kampanii">
         <button type="button" class="campaign-tab" :class="{ active: activeSection === 'about' }" @click="activeSection = 'about'">ⓘ <span>About</span></button>
         <button type="button" class="campaign-tab" :class="{ active: activeSection === 'details' }" @click="activeSection = 'details'">⌾ <span>Details</span></button>
         <button type="button" class="campaign-tab" :class="{ active: activeSection === 'guidelines' }" @click="activeSection = 'guidelines'">▣ <span>Guidelines</span></button>
@@ -98,10 +114,12 @@ watch(() => props.initialSection, section => { activeSection.value = section }, 
       </nav>
       <AboutCampaignView v-if="activeSection === 'about'" :campaign="campaign" :gallery-images="galleryImages" :display-image="displayImage" :selected-image="selectedImage" :format-date="formatDate" @select-image="selectedImage = $event" />
       <CampaignDetailsView v-else-if="activeSection === 'details'" :campaign="campaign" :format-date="formatDate" />
-      <GuidelinesView v-else-if="activeSection === 'guidelines'" :guideline-items="guidelineItems" :talking-points="talkingPoints" />
+      <GuidelinesView v-else-if="activeSection === 'guidelines'" :guideline-items="guidelineItems" :brand-guidelines="brandGuidelines" :talking-points="talkingPoints" />
       <PressKitView v-else-if="activeSection === 'resources'" :campaign="campaign" :gallery-images="galleryImages" :display-image="displayImage" :press-kit-download-url="pressKitDownloadUrl" :format-date="formatDate" :format-json="formatJson" :is-company-owner="isCompanyOwner" :upload-loading="uploadLoading" :upload-error="uploadError" @upload-press-kit="uploadPressKit" />
       <CreatorsView v-else-if="activeSection === 'creators'" :campaign="campaign" :session="session" :is-company-owner="isCompanyOwner" />
       <SubmissionsView v-else-if="activeSection === 'submissions'" :campaign="campaign" :session="session" :can-apply-to-campaign="canApplyToCampaign" :can-submit-campaign-video="canSubmitCampaignVideo" :creator-application-loading="creatorApplicationLoading" :creator-application-status="creatorApplicationStatus" :is-company-owner="isCompanyOwner" />
+      <KeyRequestsView v-else-if="activeSection === 'requests'" :campaign-id="campaignId" :session="session" :is-company-owner="isCompanyOwner" />
+      <GameKeysView v-else-if="activeSection === 'keys'" :campaign-id="campaignId" :session="session" :is-company-owner="isCompanyOwner" />
     </template>
   </div>
 </template>

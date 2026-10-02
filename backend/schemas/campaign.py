@@ -4,6 +4,13 @@ from decimal import Decimal
 from datetime import datetime, timezone
 from models.campaign import CampaignStatus
 
+ALLOWED_LANGUAGES = [
+    "PL", "EN", "DE", "FR", "ES", "IT", "NL", "PT", "CS", "SK", "TR", "HU", "RO",
+    "UA", "RU", "EL", "FI", "SV", "DA", "NO", "IS", "JA", "KO", "ZH", "AR", "HE",
+    "ID", "MS", "TH", "VI", "BN", "HI", "UR"
+]
+
+
 class CampaignBase(BaseModel):
     company_id: int
     title: str
@@ -24,6 +31,7 @@ class CampaignBase(BaseModel):
     budget_per_language: Optional[Dict[str, Decimal]] = None
 
     languages: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
     max_videos_per_creator: Optional[int] = None
     max_submissions_per_day: Optional[int] = None
 
@@ -39,6 +47,39 @@ class CampaignBase(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     rollover_remaining_budget: bool = False
+
+    @field_validator("languages")
+    @classmethod
+    def _validate_languages(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        cleaned: List[str] = []
+        seen = set()
+        for language in value:
+            code = str(language).strip().upper()
+            if code not in ALLOWED_LANGUAGES:
+                raise ValueError(f"Nieznany język: {language}. Dozwolone: {', '.join(ALLOWED_LANGUAGES)}")
+            if code not in seen:
+                cleaned.append(code)
+                seen.add(code)
+        return cleaned
+
+    @field_validator("tags")
+    @classmethod
+    def _validate_tags(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        cleaned: List[str] = []
+        seen = set()
+        for tag in value:
+            normalized = str(tag).strip()
+            if not normalized:
+                continue
+            key = normalized.lower()
+            if key not in seen:
+                cleaned.append(normalized)
+                seen.add(key)
+        return cleaned
 
     @field_validator("start_date", "end_date")
     @classmethod
