@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     tracking_redirect_base: str = "http://localhost:8080/r"
     tracking_service_token: SecretStr
     tracking_timeout: float = Field(default=5.0, gt=0)
+    solana_cluster: str = "devnet"
+    solana_rpc_url: str = "https://api.devnet.solana.com"
+    solana_treasury_address: str = ""
+    solana_treasury_private_key: SecretStr | None = None
 
 
 @lru_cache

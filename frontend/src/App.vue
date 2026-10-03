@@ -5,6 +5,7 @@ import CreateCampaign from './views/Campaign/CreateCampaign.vue'
 import EditCampaign from './views/Campaign/EditCampaign.vue'
 import CampaignDetails from './views/Campaign/CampaignDetails.vue'
 import Login from './views/Auth/Login.vue'
+import Wallet from './views/Wallet/Wallet.vue'
 
 const session = ref(JSON.parse(localStorage.getItem('waggi_session') || 'null'))
 const currentTab = ref('list')
@@ -119,6 +120,7 @@ onMounted(fetchCampaigns)
           <button @click="currentTab = 'list'"><span class="nav-icon">▤</span><span>Budget</span><span class="nav-chevron">›</span></button>
           <button :class="{ active: currentTab === 'details' && detailsSection === 'details' }" @click="openCampaignSection('details')"><span class="nav-icon">⊙</span><span>Details</span><span class="nav-chevron">⌄</span></button>
           <button @click="currentTab = 'list'"><span class="nav-icon">♧</span><span>Notifications</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'wallet' }" @click="currentTab = 'wallet'"><span class="nav-icon">◈</span><span>Wallet</span><span class="nav-chevron">›</span></button>
           <button @click="currentTab = 'list'"><span class="nav-icon">※</span><span>Announcement</span><span class="nav-chevron">›</span></button>
           <button :class="{ active: currentTab === 'edit' }" @click="currentTab = 'edit'">
             <span class="nav-icon">✎</span>
@@ -153,6 +155,8 @@ onMounted(fetchCampaigns)
           @create-new="currentTab = 'create'"
         />
 
+        <Wallet v-else-if="currentTab === 'wallet'" />
+
         <CampaignDetails
           v-else-if="currentTab === 'details'"
           :campaign-id="detailsCampaignId"
@@ -181,4 +185,3 @@ onMounted(fetchCampaigns)
     </div>
   </div>
 </template>
-
