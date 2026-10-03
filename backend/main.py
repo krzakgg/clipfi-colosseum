@@ -21,6 +21,7 @@ from controllers import (
     reflink_router,
     auth_router,
     game_key_router,
+    solana_router,
 )
 import models  # Wymagane, aby SQLAlchemy załadowało definicje tabel przed create_all
 
@@ -184,6 +185,7 @@ app.include_router(submission_router)
 app.include_router(reflink_router)
 app.include_router(auth_router)
 app.include_router(game_key_router)
+app.include_router(solana_router)
 
 
 @app.post("/api/uploads/image")
