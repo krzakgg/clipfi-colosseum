@@ -462,11 +462,16 @@ async def get_balance(address: str) -> int:
         return response.value
 
 
-def _escrow_config() -> tuple[Pubkey, Pubkey, Pubkey]:
+def _escrow_config() -> tuple[Pubkey, Pubkey, Pubkey, Pubkey]:
     settings = get_settings()
-    if not settings.solana_escrow_program_id or not settings.solana_bmoney_mint:
+    if (
+        not settings.solana_escrow_program_id
+        or not settings.solana_bmoney_mint
+        or not settings.solana_escrow_counter_mint
+    ):
         raise SolanaServiceError(
-            "Escrow nie jest skonfigurowany: ustaw SOLANA_ESCROW_PROGRAM_ID i SOLANA_BMONEY_MINT"
+            "Escrow wymaga SOLANA_ESCROW_PROGRAM_ID, SOLANA_BMONEY_MINT i "
+            "SOLANA_ESCROW_COUNTER_MINT"
         )
     program_id = validate_address(settings.solana_escrow_program_id)
     mint = validate_address(settings.solana_bmoney_mint)
@@ -474,7 +479,7 @@ def _escrow_config() -> tuple[Pubkey, Pubkey, Pubkey]:
         settings.solana_escrow_release_authority
         or str(get_treasury_keypair().pubkey())
     )
-    return program_id, mint, authority
+    return program_id, mint, validate_address(settings.solana_escrow_counter_mint), authority
 
 
 def _associated_token_address(owner: Pubkey, mint: Pubkey) -> Pubkey:
@@ -491,7 +496,7 @@ def _anchor_discriminator(name: str) -> bytes:
 
 def _campaign_pda(program_id: Pubkey, maker: Pubkey, campaign_id: int) -> Pubkey:
     address, _ = Pubkey.find_program_address(
-        [b"campaign-offer", bytes(maker), campaign_id.to_bytes(8, "little")],
+        [b"offer", bytes(maker), campaign_id.to_bytes(8, "little")],
         program_id,
     )
     return address
@@ -537,9 +542,8 @@ async def build_campaign_funding_instruction(
             detail="Kampania musi mieć przypisanego twórcę z portfelem Solana",
         )
 
-    program_id, mint, authority = _escrow_config()
+    program_id, mint, counter_mint, _ = _escrow_config()
     maker = validate_address(company_wallet)
-    creator = validate_address(creator_wallet)
     maker_token = _associated_token_address(maker, mint)
     offer = _campaign_pda(program_id, maker, campaign_id)
     vault = _associated_token_address(offer, mint)
@@ -547,21 +551,25 @@ async def build_campaign_funding_instruction(
         Decimal(str(campaign.total_budget))
         * Decimal(10 ** get_settings().solana_bmoney_decimals)
     )
-    data = _anchor_discriminator("create_campaign_offer") + campaign_id.to_bytes(8, "little") + amount.to_bytes(8, "little")
+    data = (
+        _anchor_discriminator("make_offer")
+        + campaign_id.to_bytes(8, "little")
+        + amount.to_bytes(8, "little")
+        + (0).to_bytes(8, "little")
+    )
     instruction = Instruction(
         program_id,
         data,
         [
             AccountMeta(maker, True, True),
-            AccountMeta(creator, False, False),
-            AccountMeta(authority, False, False),
             AccountMeta(mint, False, False),
+            AccountMeta(counter_mint, False, False),
             AccountMeta(maker_token, False, True),
             AccountMeta(offer, False, True),
             AccountMeta(vault, False, True),
+            AccountMeta(Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID), False, False),
             AccountMeta(Pubkey.from_string(TOKEN_PROGRAM_ID), False, False),
             AccountMeta(Pubkey.from_string(SYSTEM_PROGRAM_ID), False, False),
-            AccountMeta(Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID), False, False),
         ],
     )
     return {
@@ -570,12 +578,15 @@ async def build_campaign_funding_instruction(
         "mint": str(mint),
         "offer": str(offer),
         "vault": str(vault),
-        "release_authority": str(authority),
+        "counter_mint": str(counter_mint),
+        "model": "make/take/refund",
         "instruction": _instruction_payload(instruction),
     }
 
 
-async def release_campaign_offer(db: AsyncSession, campaign_id: int) -> str:
+async def build_campaign_take_instruction(
+    db: AsyncSession, campaign_id: int, creator_wallet: str
+) -> dict:
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Kampania nie istnieje")
@@ -586,15 +597,14 @@ async def release_campaign_offer(db: AsyncSession, campaign_id: int) -> str:
         .order_by(CampaignSubmission.id.asc())
     )
     creator = creator_result.scalars().first()
-    if not creator or not creator.solana_wallet_address:
+    if (
+        not creator
+        or not creator.solana_wallet_address
+        or creator.solana_wallet_address != creator_wallet
+    ):
         raise HTTPException(status_code=400, detail="Brak portfela twórcy")
 
-    program_id, mint, authority = _escrow_config()
-    keypair = get_treasury_keypair()
-    if keypair.pubkey() != authority:
-        raise SolanaServiceError(
-            "SOLANA_ESCROW_RELEASE_AUTHORITY musi wskazywać portfel skarbca"
-        )
+    program_id, mint, counter_mint, _ = _escrow_config()
     company = await db.get(Company, campaign.company_id)
     if not company or not company.solana_wallet_address:
         raise HTTPException(status_code=400, detail="Brak portfela firmy")
@@ -603,35 +613,65 @@ async def release_campaign_offer(db: AsyncSession, campaign_id: int) -> str:
     offer = _campaign_pda(program_id, maker, campaign_id)
     vault = _associated_token_address(offer, mint)
     creator_token = _associated_token_address(creator_key, mint)
+    creator_counter = _associated_token_address(creator_key, counter_mint)
+    maker_counter = _associated_token_address(maker, counter_mint)
     instruction = Instruction(
         program_id,
-        _anchor_discriminator("release_campaign_offer")
-        + campaign_id.to_bytes(8, "little"),
+        _anchor_discriminator("take_offer"),
         [
-            AccountMeta(authority, True, True),
-            AccountMeta(creator_key, False, True),
-            AccountMeta(mint, False, False),
-            AccountMeta(creator_token, False, True),
-            AccountMeta(offer, False, True),
+            AccountMeta(creator_key, True, True),
             AccountMeta(maker, False, True),
+            AccountMeta(mint, False, False),
+            AccountMeta(counter_mint, False, False),
+            AccountMeta(creator_token, False, True),
+            AccountMeta(creator_counter, False, True),
+            AccountMeta(maker_counter, False, True),
+            AccountMeta(offer, False, True),
             AccountMeta(vault, False, True),
+            AccountMeta(Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID), False, False),
             AccountMeta(Pubkey.from_string(TOKEN_PROGRAM_ID), False, False),
             AccountMeta(Pubkey.from_string(SYSTEM_PROGRAM_ID), False, False),
-            AccountMeta(Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID), False, False),
         ],
     )
-    async with AsyncClient(get_settings().solana_rpc_url) as client:
-        blockhash = await client.get_latest_blockhash(commitment=Finalized)
-        message = MessageV0.try_compile(
-            payer=authority,
-            instructions=[instruction],
-            address_lookup_table_accounts=[],
-            recent_blockhash=blockhash.value.blockhash,
-        )
-        result = await client.send_transaction(VersionedTransaction(message, [keypair]))
-        if not result.value:
-            raise SolanaServiceError("RPC Solany nie zwróciło sygnatury escrow")
-        confirmation = await client.confirm_transaction(result.value, commitment=Finalized)
-        if confirmation.value is False:
-            raise SolanaServiceError("Wypłata escrow nie została potwierdzona")
-        return str(result.value)
+    return {
+        "campaign_id": campaign_id,
+        "model": "take_offer",
+        "offer": str(offer),
+        "vault": str(vault),
+        "instruction": _instruction_payload(instruction),
+    }
+
+
+async def build_campaign_refund_instruction(
+    db: AsyncSession, campaign_id: int, company_wallet: str
+) -> dict:
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Kampania nie istnieje")
+    company = await db.get(Company, campaign.company_id)
+    if not company or company.solana_wallet_address != company_wallet:
+        raise HTTPException(status_code=403, detail="Portfel nie należy do firmy kampanii")
+    program_id, mint, _, _ = _escrow_config()
+    maker = validate_address(company_wallet)
+    offer = _campaign_pda(program_id, maker, campaign_id)
+    vault = _associated_token_address(offer, mint)
+    maker_token = _associated_token_address(maker, mint)
+    instruction = Instruction(
+        program_id,
+        _anchor_discriminator("refund_offer"),
+        [
+            AccountMeta(maker, True, True),
+            AccountMeta(mint, False, False),
+            AccountMeta(maker_token, False, True),
+            AccountMeta(offer, False, True),
+            AccountMeta(vault, False, True),
+            AccountMeta(Pubkey.from_string(TOKEN_PROGRAM_ID), False, False),
+        ],
+    )
+    return {
+        "campaign_id": campaign_id,
+        "model": "refund_offer",
+        "offer": str(offer),
+        "vault": str(vault),
+        "instruction": _instruction_payload(instruction),
+    }

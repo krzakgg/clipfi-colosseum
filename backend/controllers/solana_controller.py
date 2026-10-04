@@ -5,6 +5,7 @@ from schemas.solana import (
     DepositRequest,
     FeeQuoteResponse,
     CampaignEscrowInstructionRequest,
+    CampaignEscrowActionRequest,
     SolanaConfigResponse,
     WalletRequest,
     WithdrawalChallengeRequest,
@@ -25,7 +26,8 @@ from solana_service import (
     calculate_fee,
     fee_bps_for,
     build_campaign_funding_instruction,
-    release_campaign_offer,
+    build_campaign_take_instruction,
+    build_campaign_refund_instruction,
 )
 from database import get_db
 
@@ -51,6 +53,7 @@ async def solana_config():
         system_program_id=SYSTEM_PROGRAM_ID,
         escrow_program_id=settings.solana_escrow_program_id,
         bmoney_mint=settings.solana_bmoney_mint,
+        escrow_counter_mint=settings.solana_escrow_counter_mint,
         escrow_release_authority=settings.solana_escrow_release_authority
         or treasury_address,
         company_deposit_fee_bps=settings.solana_company_deposit_fee_bps,
@@ -136,13 +139,28 @@ async def campaign_escrow_funding_instruction(
 
 @router.post("/campaign/{campaign_id}/escrow/release")
 async def campaign_escrow_release(
-    campaign_id: int, db: AsyncSession = Depends(get_db)
+    campaign_id: int,
+    payload: CampaignEscrowActionRequest,
+    db: AsyncSession = Depends(get_db),
 ):
     try:
-        signature = await release_campaign_offer(db, campaign_id)
+        instruction = await build_campaign_take_instruction(
+            db, campaign_id, payload.wallet_address
+        )
     except SolanaServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return {"signature": signature, "cluster": get_settings().solana_cluster}
+    return instruction
+
+
+@router.post("/campaign/{campaign_id}/escrow/refund-instruction")
+async def campaign_escrow_refund(
+    campaign_id: int,
+    payload: CampaignEscrowActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await build_campaign_refund_instruction(
+        db, campaign_id, payload.wallet_address
+    )
 
 
 @router.post("/withdraw/challenge", response_model=WithdrawalChallengeResponse)

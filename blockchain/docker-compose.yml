@@ -1,0 +1,16 @@
+services:
+  anchor:
+    build:
+      context: .
+    working_dir: /workspace
+    environment:
+      SOLANA_URL: ${SOLANA_URL:-https://api.devnet.solana.com}
+      SOLANA_KEYPAIR: /root/.config/solana/id.json
+    volumes:
+      - ./:/workspace
+      - solana_config:/root/.config/solana
+    stdin_open: true
+    tty: true
+
+volumes:
+  solana_config:

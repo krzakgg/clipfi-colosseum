@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     solana_internal_currency_per_sol: float = Field(default=1.0, gt=0)
     solana_escrow_program_id: str = ""
     solana_bmoney_mint: str = ""
+    solana_escrow_counter_mint: str = ""
     solana_bmoney_decimals: int = Field(default=6, ge=0, le=18)
     solana_escrow_release_authority: str = ""
 

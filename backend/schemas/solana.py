@@ -8,6 +8,7 @@ class SolanaConfigResponse(BaseModel):
     system_program_id: str
     escrow_program_id: str = ""
     bmoney_mint: str = ""
+    escrow_counter_mint: str = ""
     escrow_release_authority: str = ""
     company_deposit_fee_bps: int = 0
     company_withdrawal_fee_bps: int = 0
@@ -59,3 +60,7 @@ class FeeQuoteResponse(BaseModel):
 
 class CampaignEscrowInstructionRequest(BaseModel):
     company_wallet: str
+
+
+class CampaignEscrowActionRequest(BaseModel):
+    wallet_address: str

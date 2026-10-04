@@ -4,3 +4,6 @@ uploads/
 .venv/
 .env
 frontend/dist
+blockchain/.anchor/
+blockchain/target/
+blockchain/public-examples/
