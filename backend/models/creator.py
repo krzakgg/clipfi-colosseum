@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, Float, DateTime, JSON, func
+from sqlalchemy import Column, Integer, String, Text, Boolean, Float, DateTime, JSON, Numeric, func
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -12,6 +12,8 @@ class Creator(Base):
     password_hash = Column(String(256), nullable=True)
     avatar_url = Column(String(500), nullable=True)
     bio = Column(Text, nullable=True)
+    solana_wallet_address = Column(String(44), unique=True, nullable=True, index=True)
+    internal_balance = Column(Numeric(20, 8), nullable=False, server_default="0")
 
     # Weryfikacja profilu i wewnętrzna ocena
     is_verified = Column(Boolean, default=False)

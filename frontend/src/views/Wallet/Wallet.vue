@@ -11,7 +11,9 @@ const provider = ref(null)
 const publicKey = ref('')
 const balance = ref(null)
 const treasuryBalance = ref(null)
-const amount = ref('')
+const internalBalance = ref('0')
+const depositAmount = ref('')
+const withdrawalAmount = ref('')
 const destination = ref('')
 const busy = ref(false)
 const message = ref('')
@@ -36,15 +38,41 @@ const connectWallet = async () => {
     const response = await window.solana.connect()
     publicKey.value = response.publicKey.toString()
     destination.value = publicKey.value
+    await saveWallet()
     await loadBalance(publicKey.value)
   } catch (error) {
     errorMessage.value = error.message || 'Nie udało się połączyć z portfelem.'
   }
+
+}
+
+const account = () => {
+  const session = JSON.parse(localStorage.getItem('waggi_session') || 'null')
+  return { account_type: session?.account_type, account_id: session?.user?.id }
+}
+
+const saveWallet = async () => {
+  const response = await fetch(`${API_URL}/api/solana/wallet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...account(), wallet_address: publicKey.value })
+  })
+  if (!response.ok) throw new Error('Nie udało się przypisać portfela do konta.')
+}
+
+const loadAccount = async () => {
+  const identity = account()
+  if (!identity.account_type || !identity.account_id) return
+  const response = await fetch(`${API_URL}/api/solana/account/${identity.account_type}/${identity.account_id}`)
+  if (!response.ok) return
+  const data = await response.json()
+  internalBalance.value = data.internal_balance
+  if (data.wallet_address && !publicKey.value) destination.value = data.wallet_address
 }
 
 const submitDeposit = async () => {
   if (!connected.value || !config.value) return
-  const sol = Number(amount.value)
+  const sol = Number(depositAmount.value)
   if (!Number.isFinite(sol) || sol <= 0) {
     errorMessage.value = 'Podaj dodatnią kwotę SOL.'
     return
@@ -62,6 +90,20 @@ const submitDeposit = async () => {
     const signature = await window.solana.signAndSendTransaction(transaction)
     await connection.confirmTransaction(signature.signature, 'confirmed')
     message.value = `Wpłata potwierdzona: ${signature.signature}`
+    const identity = account()
+    const credited = await fetch(`${API_URL}/api/solana/deposit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...identity,
+        wallet_address: publicKey.value,
+        signature: signature.signature
+      })
+    })
+    const creditedData = await credited.json()
+    if (!credited.ok) throw new Error(creditedData.detail || 'Nie udało się zaksięgować wpłaty.')
+    internalBalance.value = String(Number(internalBalance.value) + Number(creditedData.internal_amount))
+    message.value = `Wpłata zaksięgowana: +${creditedData.internal_amount} waluty wewnętrznej`
     await Promise.all([loadBalance(publicKey.value), loadTreasuryBalance()])
   } catch (error) {
     errorMessage.value = error.message || 'Wpłata nie powiodła się.'
@@ -78,9 +120,9 @@ const loadTreasuryBalance = async () => {
 
 const submitWithdrawal = async () => {
   if (!connected.value || !config.value) return
-  const sol = Number(amount.value)
-  if (!Number.isFinite(sol) || sol <= 0 || !destination.value) {
-    errorMessage.value = 'Podaj dodatnią kwotę SOL i adres docelowy.'
+  const sol = Number(withdrawalAmount.value)
+  if (!Number.isFinite(sol) || sol <= 0) {
+    errorMessage.value = 'Podaj dodatnią kwotę SOL.'
     return
   }
   busy.value = true
@@ -91,7 +133,11 @@ const submitWithdrawal = async () => {
     const challengeResponse = await fetch(`${API_URL}/api/solana/withdraw/challenge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet_address: publicKey.value, destination: destination.value, lamports })
+      body: JSON.stringify({
+        ...account(),
+        wallet_address: publicKey.value,
+        lamports
+      })
     })
     const challenge = await challengeResponse.json()
     if (!challengeResponse.ok) throw new Error(challenge.detail || 'Nie udało się utworzyć challenge.')
@@ -104,7 +150,7 @@ const submitWithdrawal = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         wallet_address: publicKey.value,
-        destination: destination.value,
+        ...account(),
         lamports,
         nonce: challenge.nonce,
         signature: bs58.encode(signed.signature)
@@ -114,6 +160,7 @@ const submitWithdrawal = async () => {
     if (!response.ok) throw new Error(result.detail || 'Wypłata nie powiodła się.')
     message.value = `Wypłata potwierdzona: ${result.signature}`
     await Promise.all([loadBalance(publicKey.value), loadTreasuryBalance()])
+    await loadAccount()
   } catch (error) {
     errorMessage.value = error.message || 'Wypłata nie powiodła się.'
   } finally {
@@ -127,6 +174,7 @@ onMounted(async () => {
     const data = await response.json()
     if (!response.ok) throw new Error(data.detail || 'Skarbiec Solany nie jest skonfigurowany.')
     config.value = data
+    await loadAccount()
     await loadTreasuryBalance()
   } catch (error) {
     errorMessage.value = error.message
@@ -151,18 +199,18 @@ onMounted(async () => {
 
     <div class="wallet-stats">
       <div><span>Twoje saldo</span><strong>{{ formatSol(balance) }}</strong></div>
-      <div><span>Saldo skarbca</span><strong>{{ formatSol(treasuryBalance) }}</strong></div>
+      <div><span>Saldo waluty wewnętrznej</span><strong>{{ internalBalance }}</strong></div>
       <div><span>Sieć</span><strong>{{ config?.cluster || '—' }}</strong></div>
     </div>
 
     <form class="wallet-form" @submit.prevent>
       <label class="form-group">
-        <span>Kwota (SOL)</span>
-        <input v-model="amount" type="number" min="0.000001" step="0.000001" placeholder="0.10" :disabled="!connected || busy" />
+        <span>Kwota wpłaty (SOL)</span>
+        <input v-model="depositAmount" type="number" min="0.000001" step="0.000001" placeholder="0.10" :disabled="!connected || busy" />
       </label>
       <label class="form-group">
-        <span>Adres wypłaty</span>
-        <input v-model="destination" type="text" placeholder="Adres Solana Base58" :disabled="!connected || busy" />
+        <span>Kwota wypłaty (SOL)</span>
+        <input v-model="withdrawalAmount" type="number" min="0.00000001" step="0.00000001" placeholder="1.00" :disabled="!connected || busy" />
       </label>
       <div class="wallet-actions">
         <button class="btn-submit" type="button" :disabled="!connected || busy" @click="submitDeposit">

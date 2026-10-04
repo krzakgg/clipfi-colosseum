@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     solana_rpc_url: str = "https://api.devnet.solana.com"
     solana_treasury_address: str = ""
     solana_treasury_private_key: SecretStr | None = None
+    solana_max_withdrawal_lamports: int = Field(default=10_000_000_000, gt=0)
+    solana_daily_withdrawal_limit_lamports: int = Field(
+        default=50_000_000_000, gt=0
+    )
+    solana_internal_currency_per_sol: float = Field(default=1.0, gt=0)
+    solana_escrow_program_id: str = ""
+    solana_bmoney_mint: str = ""
+    solana_bmoney_decimals: int = Field(default=6, ge=0, le=18)
+    solana_escrow_release_authority: str = ""
 
 
 @lru_cache

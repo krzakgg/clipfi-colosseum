@@ -5,6 +5,7 @@ from .creator import Creator
 from .submission import CampaignSubmission, CampaignSubmissionStatus, CampaignPayoutStatus
 from .reflink import CampaignRefLink
 from .game_key import GameKey, GameKeyStatus, KeyRequest, KeyRequestStatus
+from .solana import SolanaDeposit, SolanaWithdrawal, SolanaWithdrawalChallenge
 
 __all__ = [
     "CampaignApplication",
@@ -19,4 +20,7 @@ __all__ = [
     "GameKeyStatus",
     "KeyRequest",
     "KeyRequestStatus",
+    "SolanaWithdrawal",
+    "SolanaWithdrawalChallenge",
+    "SolanaDeposit",
 ]
