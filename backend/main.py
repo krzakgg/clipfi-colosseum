@@ -161,6 +161,22 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE solana_withdrawals ADD COLUMN IF NOT EXISTS "
                     "internal_amount NUMERIC(20, 8) NOT NULL DEFAULT 0"
                 ))
+                await conn.execute(text(
+                    "ALTER TABLE solana_withdrawals ADD COLUMN IF NOT EXISTS "
+                    "fee_lamports BIGINT NOT NULL DEFAULT 0"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE solana_withdrawals ADD COLUMN IF NOT EXISTS "
+                    "fee_internal_amount NUMERIC(20, 8) NOT NULL DEFAULT 0"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE solana_deposits ADD COLUMN IF NOT EXISTS "
+                    "fee_lamports BIGINT NOT NULL DEFAULT 0"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE solana_withdrawal_challenges ADD COLUMN IF NOT EXISTS "
+                    "fee_lamports BIGINT NOT NULL DEFAULT 0"
+                ))
             print("Pomyślnie połączono z bazą danych i utworzono tabele.")
             break
         except (OperationalError, ConnectionRefusedError, OSError) as e:

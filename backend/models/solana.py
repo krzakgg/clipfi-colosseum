@@ -13,6 +13,7 @@ class SolanaWithdrawalChallenge(Base):
     wallet_address: Mapped[str] = mapped_column(String(44), nullable=False, index=True)
     destination: Mapped[str] = mapped_column(String(44), nullable=False)
     lamports: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    fee_lamports: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     message: Mapped[str] = mapped_column(String(512), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -29,6 +30,10 @@ class SolanaWithdrawal(Base):
     destination: Mapped[str] = mapped_column(String(44), nullable=False)
     lamports: Mapped[int] = mapped_column(BigInteger, nullable=False)
     internal_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
+    fee_lamports: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    fee_internal_amount: Mapped[float] = mapped_column(
+        Numeric(20, 8), nullable=False, server_default="0"
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     signature: Mapped[str | None] = mapped_column(String(100), unique=True)
     error: Mapped[str | None] = mapped_column(String(500))
@@ -47,6 +52,7 @@ class SolanaDeposit(Base):
     account_id: Mapped[int] = mapped_column(Integer, nullable=False)
     wallet_address: Mapped[str] = mapped_column(String(44), nullable=False)
     lamports: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    fee_lamports: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     internal_amount: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

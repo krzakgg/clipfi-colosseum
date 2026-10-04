@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waggi.backend.schemas.solana import (
+from schemas.solana import (
     DepositRequest,
+    FeeQuoteResponse,
     CampaignEscrowInstructionRequest,
     SolanaConfigResponse,
     WalletRequest,
@@ -21,6 +22,8 @@ from solana_service import (
     set_wallet,
     verify_challenge,
     withdraw,
+    calculate_fee,
+    fee_bps_for,
     build_campaign_funding_instruction,
     release_campaign_offer,
 )
@@ -50,6 +53,9 @@ async def solana_config():
         bmoney_mint=settings.solana_bmoney_mint,
         escrow_release_authority=settings.solana_escrow_release_authority
         or treasury_address,
+        company_deposit_fee_bps=settings.solana_company_deposit_fee_bps,
+        company_withdrawal_fee_bps=settings.solana_company_withdrawal_fee_bps,
+        creator_withdrawal_fee_bps=settings.solana_creator_withdrawal_fee_bps,
     )
 
 
@@ -61,7 +67,8 @@ async def solana_balance(address: str):
 @router.post("/wallet")
 async def configure_wallet(payload: WalletRequest, db: AsyncSession = Depends(get_db)):
     wallet_address = await set_wallet(
-        db, payload.account_type, payload.account_id, payload.wallet_address
+        db, payload.account_type, payload.account_id, payload.wallet_address,
+        payload.signature
     )
     return {"wallet_address": wallet_address}
 
@@ -94,7 +101,28 @@ async def solana_deposit(
         "signature": payload.signature,
         "lamports": lamports,
         "internal_amount": str(internal_amount),
+        "fee_lamports": calculate_fee(
+            lamports, fee_bps_for(payload.account_type, "deposit")
+        ),
     }
+
+
+@router.post("/fee-quote", response_model=FeeQuoteResponse)
+async def solana_fee_quote(
+    operation: str, account_type: str, lamports: int
+):
+    if operation not in {"deposit", "withdrawal"} or account_type not in {"company", "creator"}:
+        raise HTTPException(status_code=422, detail="Nieprawidłowy typ operacji lub konta")
+    if lamports <= 0:
+        raise HTTPException(status_code=422, detail="Kwota musi być dodatnia")
+    fee = calculate_fee(lamports, fee_bps_for(account_type, operation))
+    return FeeQuoteResponse(
+        operation=operation,
+        account_type=account_type,
+        fee_bps=fee_bps_for(account_type, operation),
+        fee_lamports=fee,
+        net_lamports=lamports - fee if operation == "deposit" else lamports,
+    )
 
 
 @router.post("/campaign/{campaign_id}/escrow/funding-instruction")
@@ -127,11 +155,14 @@ async def withdrawal_challenge(
         payload.account_type,
         payload.account_id,
         payload.lamports,
+        payload.destination_wallet_address,
     )
     return WithdrawalChallengeResponse(
         nonce=challenge.nonce,
         message=challenge.message,
         expires_at=challenge.expires_at,
+        fee_lamports=challenge.fee_lamports,
+        total_internal_amount=str(challenge.total_internal_amount),
     )
 
 
@@ -147,6 +178,7 @@ async def solana_withdraw(
         payload.lamports,
         payload.nonce,
         payload.signature,
+        payload.destination_wallet_address,
     )
     try:
         signature = await withdraw(db, challenge, withdrawal.id)

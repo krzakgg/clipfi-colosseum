@@ -61,6 +61,8 @@ class WithdrawalChallenge:
     expires_at: int
     account_type: str
     account_id: int
+    fee_lamports: int
+    total_internal_amount: Decimal
 
 
 def _parse_keypair(value: str) -> Keypair:
@@ -100,14 +102,40 @@ def validate_address(value: str) -> Pubkey:
 
 
 def build_withdrawal_message(
-    wallet_address: str, destination: str, lamports: int, nonce: str
+    wallet_address: str, destination: str, lamports: int, fee_lamports: int, nonce: str
 ) -> str:
     return (
         "WAGGI withdrawal\n"
         f"wallet: {wallet_address}\n"
         f"destination: {destination}\n"
         f"lamports: {lamports}\n"
+        f"fee_lamports: {fee_lamports}\n"
         f"nonce: {nonce}"
+    )
+
+
+def fee_bps_for(account_type: str, operation: str) -> int:
+    settings = get_settings()
+    if account_type == "company" and operation == "deposit":
+        return settings.solana_company_deposit_fee_bps
+    if account_type == "creator" and operation == "deposit":
+        return 0
+    if account_type == "company":
+        return settings.solana_company_withdrawal_fee_bps
+    if account_type == "creator" and operation == "withdrawal":
+        return settings.solana_creator_withdrawal_fee_bps
+    raise ValueError("Nieprawidłowy typ konta lub operacja prowizji")
+
+
+def calculate_fee(lamports: int, fee_bps: int) -> int:
+    return (lamports * fee_bps + 9_999) // 10_000
+
+
+def internal_amount_for_lamports(lamports: int) -> Decimal:
+    return (
+        Decimal(lamports)
+        / Decimal(1_000_000_000)
+        * Decimal(str(get_settings().solana_internal_currency_per_sol))
     )
 
 
@@ -117,25 +145,29 @@ async def create_challenge(
     account_type: str,
     account_id: int,
     lamports: int,
+    destination_wallet_address: str,
 ) -> WithdrawalChallenge:
     validate_address(wallet_address)
-    account = await get_account(db, account_type, account_id)
-    destination = account.solana_wallet_address
-    if not destination:
-        raise HTTPException(status_code=400, detail="Najpierw ustaw adres portfela wypłat")
+    destination = str(validate_address(destination_wallet_address))
+    await get_account(db, account_type, account_id)
     settings = get_settings()
     if lamports > settings.solana_max_withdrawal_lamports:
         raise HTTPException(status_code=400, detail="Przekroczono limit pojedynczej wypłaty")
 
     nonce = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_TTL_SECONDS)
-    message = build_withdrawal_message(wallet_address, destination, lamports, nonce)
+    fee_lamports = calculate_fee(lamports, fee_bps_for(account_type, "withdrawal"))
+    total_internal_amount = internal_amount_for_lamports(lamports + fee_lamports)
+    message = build_withdrawal_message(
+        wallet_address, destination, lamports, fee_lamports, nonce
+    )
     db.add(
         SolanaWithdrawalChallenge(
             nonce=nonce,
             wallet_address=wallet_address,
             destination=destination,
             lamports=lamports,
+            fee_lamports=fee_lamports,
             message=message,
             expires_at=expires_at,
         )
@@ -143,7 +175,7 @@ async def create_challenge(
     await db.commit()
     return WithdrawalChallenge(
         nonce, wallet_address, destination, lamports, message, int(expires_at.timestamp()),
-        account_type, account_id
+        account_type, account_id, fee_lamports, total_internal_amount
     )
 
 
@@ -155,6 +187,7 @@ async def verify_challenge(
     lamports: int,
     nonce: str,
     signature: str,
+    destination_wallet_address: str,
 ) -> tuple[WithdrawalChallenge, SolanaWithdrawal]:
     async with db.begin():
         await db.execute(
@@ -171,8 +204,10 @@ async def verify_challenge(
         if not record or record.used_at or record.expires_at < now:
             raise HTTPException(status_code=400, detail="Challenge wygasł lub został już użyty")
         account = await get_account(db, account_type, account_id)
-        destination = account.solana_wallet_address
-        if not destination or (
+        destination = str(validate_address(destination_wallet_address))
+        fee_lamports = record.fee_lamports
+        total_internal_amount = internal_amount_for_lamports(lamports + fee_lamports)
+        if (
             record.wallet_address != wallet_address
             or record.destination != destination
             or record.lamports != lamports
@@ -204,21 +239,19 @@ async def verify_challenge(
         if total + lamports > settings.solana_daily_withdrawal_limit_lamports:
             raise HTTPException(status_code=400, detail="Przekroczono dzienny limit wypłat")
 
-        internal_amount = (
-            Decimal(lamports) / Decimal(1_000_000_000)
-            * Decimal(str(settings.solana_internal_currency_per_sol))
-        )
         current_balance = Decimal(str(account.internal_balance or 0))
-        if current_balance < internal_amount:
+        if current_balance < total_internal_amount:
             raise HTTPException(status_code=400, detail="Niewystarczające saldo waluty wewnętrznej")
-        account.internal_balance = current_balance - internal_amount
+        account.internal_balance = current_balance - total_internal_amount
         record.used_at = now
         withdrawal = SolanaWithdrawal(
             nonce=nonce,
             wallet_address=wallet_address,
             destination=destination,
             lamports=lamports,
-            internal_amount=internal_amount,
+            internal_amount=total_internal_amount,
+            fee_lamports=fee_lamports,
+            fee_internal_amount=internal_amount_for_lamports(fee_lamports),
             status=WITHDRAWAL_PROCESSING,
         )
         db.add(withdrawal)
@@ -230,6 +263,7 @@ async def verify_challenge(
             record.destination,
             record.lamports,
             record.message, int(record.expires_at.timestamp()), account_type, account_id
+            , fee_lamports, total_internal_amount
         ),
         withdrawal,
     )
@@ -244,10 +278,29 @@ async def get_account(db: AsyncSession, account_type: str, account_id: int):
 
 
 async def set_wallet(
-    db: AsyncSession, account_type: str, account_id: int, wallet_address: str
+    db: AsyncSession, account_type: str, account_id: int, wallet_address: str,
+    signature: str | None = None,
 ) -> str:
-    validate_address(wallet_address)
+    address = validate_address(wallet_address)
     account = await get_account(db, account_type, account_id)
+    message = (
+        f"WAGGI wallet verification\naccount_type: {account_type}\n"
+        f"account_id: {account_id}\nwallet_address: {wallet_address}"
+    )
+    if account.solana_wallet_address != wallet_address:
+        if not signature:
+            raise HTTPException(
+                status_code=400,
+                detail="Nowy portfel wymaga podpisania wiadomości w tym portfelu",
+            )
+        try:
+            valid = Signature.from_bytes(base58.b58decode(signature)).verify(
+                address, message.encode("utf-8")
+            )
+        except (ValueError, TypeError):
+            valid = False
+        if not valid:
+            raise HTTPException(status_code=401, detail="Nieprawidłowy podpis portfela")
     account.solana_wallet_address = wallet_address
     await db.commit()
     return wallet_address
@@ -267,8 +320,6 @@ async def deposit(
             return Decimal(str(existing.internal_amount)), existing.lamports
 
         account = await get_account(db, account_type, account_id)
-        if account.solana_wallet_address != wallet_address:
-            raise HTTPException(status_code=400, detail="Portfel nie jest przypisany do konta")
 
         settings = get_settings()
         async with AsyncClient(settings.solana_rpc_url) as client:
@@ -301,10 +352,11 @@ async def deposit(
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Transakcja nie zawiera wpłaty do skarbca")
 
-        internal_amount = (
-            Decimal(amount) / Decimal(1_000_000_000)
-            * Decimal(str(settings.solana_internal_currency_per_sol))
+        fee_lamports = calculate_fee(
+            amount, fee_bps_for(account_type, "deposit")
         )
+        credited_lamports = amount - fee_lamports
+        internal_amount = internal_amount_for_lamports(credited_lamports)
         account.internal_balance = Decimal(str(account.internal_balance or 0)) + internal_amount
         db.add(
             SolanaDeposit(
@@ -313,6 +365,7 @@ async def deposit(
                 account_id=account_id,
                 wallet_address=wallet_address,
                 lamports=amount,
+                fee_lamports=fee_lamports,
                 internal_amount=internal_amount,
                 status="credited",
             )
@@ -335,9 +388,25 @@ async def withdraw(db: AsyncSession, challenge: WithdrawalChallenge, withdrawal_
                     lamports=challenge.lamports,
                 )
             )
+            instructions = [instruction]
+            fee_wallet = (
+                get_settings().solana_platform_fee_wallet_address
+                or get_settings().solana_treasury_address
+                or str(keypair.pubkey())
+            )
+            if challenge.fee_lamports and fee_wallet != str(keypair.pubkey()):
+                instructions.append(
+                    transfer(
+                        TransferParams(
+                            from_pubkey=keypair.pubkey(),
+                            to_pubkey=validate_address(fee_wallet),
+                            lamports=challenge.fee_lamports,
+                        )
+                    )
+                )
             message = MessageV0.try_compile(
                 payer=keypair.pubkey(),
-                instructions=[instruction],
+                instructions=instructions,
                 address_lookup_table_accounts=[],
                 recent_blockhash=response.value.blockhash,
             )
