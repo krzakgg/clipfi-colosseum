@@ -1,0 +1,14 @@
+services:
+  anchor:
+    image: solanafoundation/anchor:v1.0.2
+    working_dir: /work
+    volumes:
+      - ./:/work
+      - target:/work/target
+      - cargo_registry:/root/.cargo/registry
+      - solana_config:/root/.config/solana
+
+volumes:
+  target:
+  cargo_registry:
+  solana_config:

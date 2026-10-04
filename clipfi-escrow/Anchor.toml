@@ -1,0 +1,21 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+clipfi_escrow = "GAXMVFUXzAPBwhW4cF127HiSZmiY791XX2mBFEqqBwx"
+
+[programs.devnet]
+clipfi_escrow = "GAXMVFUXzAPBwhW4cF127HiSZmiY791XX2mBFEqqBwx"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]
