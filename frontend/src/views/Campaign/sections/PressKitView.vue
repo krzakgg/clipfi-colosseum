@@ -1,4 +1,8 @@
 <script setup>
+import { ref } from 'vue'
+
+const coverFailed = ref(false)
+
 defineProps({
   campaign: { type: Object, required: true }, galleryImages: { type: Array, required: true }, displayImage: { type: String, default: '' },
   pressKitDownloadUrl: { type: String, default: '' }, formatDate: { type: Function, required: true }, formatJson: { type: Function, required: true },
@@ -21,6 +25,6 @@ const emit = defineEmits(['upload-press-kit'])
         <label v-if="isCompanyOwner" class="press-upload"><input type="file" @change="emit('upload-press-kit', $event)" :disabled="uploadLoading" /><span class="upload-icon">↑</span><span><strong>{{ uploadLoading ? 'Uploading...' : 'Upload new content' }}</strong><small>Add a file, image or video</small></span></label><p v-if="uploadError" class="press-upload-error">{{ uploadError }}</p>
       </article>
     </main>
-    <aside class="press-kit-sidebar"><article class="press-panel campaign-preview-card"><div class="press-cover" :class="{ 'empty-image': !displayImage }"><img v-if="displayImage" :src="displayImage" :alt="`Obraz kampanii ${campaign.title}`" /><span v-else>No campaign image</span></div><h2>{{ campaign.title }}</h2><p v-if="campaign.product_description">{{ campaign.product_description }}</p><p v-else-if="campaign.description" class="rich-text-rendered" v-html="campaign.description"></p><p v-else>No campaign description.</p><dl class="press-meta"><div><dt>Developer</dt><dd>{{ campaign.company_name || '—' }}</dd></div><div><dt>Release Date</dt><dd>{{ formatDate(campaign.start_date) }}</dd></div></dl><h3>Tags</h3><div class="press-tags"><span v-for="language in (campaign.languages || [])" :key="language">{{ language }}</span><span v-if="!campaign.languages?.length">Campaign</span></div><h3 v-if="campaign.social_media_links">Socials</h3><div v-if="campaign.social_media_links" class="press-socials"><a v-for="(url, platform) in campaign.social_media_links" :key="platform" :href="url" target="_blank" rel="noopener"><span>{{ platform }}</span><b>→</b></a></div></article></aside>
+    <aside class="press-kit-sidebar"><article class="press-panel campaign-preview-card"><div class="press-cover" :class="{ 'empty-image': !displayImage || coverFailed }"><img v-if="displayImage && !coverFailed" :src="displayImage" :alt="`Campaign image ${campaign.title}`" @error="coverFailed = true" /><span v-else>No campaign image</span></div><h2>{{ campaign.title }}</h2><p v-if="campaign.product_description">{{ campaign.product_description }}</p><p v-else-if="campaign.description" class="rich-text-rendered" v-html="campaign.description"></p><p v-else>No campaign description.</p><dl class="press-meta"><div><dt>Developer</dt><dd>{{ campaign.company_name || '—' }}</dd></div><div><dt>Release Date</dt><dd>{{ formatDate(campaign.start_date) }}</dd></div></dl><h3>Tags</h3><div class="press-tags"><span v-for="language in (campaign.languages || [])" :key="language">{{ language }}</span><span v-if="!campaign.languages?.length">Campaign</span></div><h3 v-if="campaign.social_media_links">Socials</h3><div v-if="campaign.social_media_links" class="press-socials"><a v-for="(url, platform) in campaign.social_media_links" :key="platform" :href="url" target="_blank" rel="noopener"><span>{{ platform }}</span><b>→</b></a></div></article></aside>
   </section>
 </template>

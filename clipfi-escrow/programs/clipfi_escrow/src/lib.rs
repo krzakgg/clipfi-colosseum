@@ -17,14 +17,8 @@ declare_id!("GAXMVFUXzAPBwhW4cF127HiSZmiY791XX2mBFEqqBwx");
 pub mod clipfi_escrow {
     use super::*;
 
-    pub fn init_config(
-        ctx: Context<InitConfig>,
-        oracle: Pubkey,
-        arbiter: Pubkey,
-        vesting_secs: i64,
-    ) -> Result<()> {
-        ctx.accounts
-            .handle(oracle, arbiter, vesting_secs, &ctx.bumps)
+    pub fn init_config(ctx: Context<InitConfig>, params: ConfigParams) -> Result<()> {
+        ctx.accounts.handle(params, &ctx.bumps)
     }
 
     pub fn create_campaign(
@@ -37,6 +31,17 @@ pub mod clipfi_escrow {
 
     pub fn fund_campaign(ctx: Context<FundCampaign>, amount: u64) -> Result<()> {
         ctx.accounts.handle(amount)
+    }
+
+    pub fn propose_rates(ctx: Context<ProposeRates>, rates: [u64; 4]) -> Result<()> {
+        ctx.accounts.handle(rates)
+    }
+
+    pub fn propose_standards(
+        ctx: Context<ProposeStandards>,
+        standards_hash: [u8; 32],
+    ) -> Result<()> {
+        ctx.accounts.handle(standards_hash)
     }
 
     pub fn settle(
@@ -56,11 +61,47 @@ pub mod clipfi_escrow {
         ctx.accounts.handle(approve)
     }
 
+    pub fn slash(ctx: Context<Slash>, amount: u64) -> Result<()> {
+        ctx.accounts.handle(amount)
+    }
+
     pub fn release(ctx: Context<Release>) -> Result<()> {
         ctx.accounts.handle()
     }
 
     pub fn close_campaign(ctx: Context<CloseCampaign>) -> Result<()> {
         ctx.accounts.handle()
+    }
+
+    pub fn rollover(ctx: Context<Rollover>) -> Result<()> {
+        ctx.accounts.handle()
+    }
+
+    pub fn stake(ctx: Context<StakeTokens>, amount: u64) -> Result<()> {
+        ctx.accounts.handle(amount, &ctx.bumps)
+    }
+
+    pub fn request_unstake(ctx: Context<RequestUnstake>, amount: u64) -> Result<()> {
+        ctx.accounts.handle(amount)
+    }
+
+    pub fn withdraw_stake(ctx: Context<WithdrawStake>) -> Result<()> {
+        ctx.accounts.handle()
+    }
+
+    pub fn set_auto_restake(ctx: Context<SetAutoRestake>, bps: u16) -> Result<()> {
+        ctx.accounts.handle(bps)
+    }
+
+    pub fn fund_bonus_pool(ctx: Context<FundBonusPool>, amount: u64) -> Result<()> {
+        ctx.accounts.handle(amount)
+    }
+
+    pub fn update_config(ctx: Context<UpdateConfig>, params: ConfigParams) -> Result<()> {
+        ctx.accounts.handle(params)
+    }
+
+    pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
+        ctx.accounts.handle(paused)
     }
 }

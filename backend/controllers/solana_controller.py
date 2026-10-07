@@ -1,12 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from schemas.solana import (
     DepositRequest,
+    EscrowCloseRequest,
+    EscrowFlagRequest,
+    EscrowFundingRequest,
+    EscrowReleaseRequest,
+    EscrowResolveRequest,
+    EscrowRolloverRequest,
+    EscrowSettleRequest,
     FeeQuoteResponse,
-    CampaignEscrowInstructionRequest,
-    CampaignEscrowActionRequest,
     SolanaConfigResponse,
+    StakeInstructionRequest,
     WalletRequest,
     WithdrawalChallengeRequest,
     WithdrawalChallengeResponse,
@@ -16,22 +24,43 @@ from settings import get_settings
 from solana_service import (
     SYSTEM_PROGRAM_ID,
     SolanaServiceError,
+    build_close_instruction,
+    build_escrow_funding_instructions,
+    build_flag_instruction,
+    build_rollover_instruction,
+    build_stake_instruction,
+    calculate_fee,
     create_challenge,
-    get_balance,
-    get_treasury_keypair,
     deposit,
+    escrow_config_view,
+    fee_bps_for,
+    get_balance,
+    get_escrow_campaign,
+    get_stake,
+    get_treasury_keypair,
+    list_payouts,
+    release_payout,
+    require_oracle_token,
+    resolve_payout,
     set_wallet,
+    settle_payout,
     verify_challenge,
     withdraw,
-    calculate_fee,
-    fee_bps_for,
-    build_campaign_funding_instruction,
-    build_campaign_take_instruction,
-    build_campaign_refund_instruction,
 )
 from database import get_db
+from tracking_client import TrackingClient, get_tracking
 
 router = APIRouter(prefix="/api/solana", tags=["solana"])
+
+OracleToken = Annotated[str | None, Header(alias="X-Oracle-Token")]
+
+
+
+async def _escrow(call):
+    try:
+        return await call
+    except SolanaServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.get("/config", response_model=SolanaConfigResponse)
@@ -46,16 +75,16 @@ async def solana_config():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skarbiec Solany nie jest skonfigurowany",
         )
+    escrow = escrow_config_view()
     return SolanaConfigResponse(
         cluster=settings.solana_cluster,
         rpc_url=settings.solana_rpc_url,
         treasury_address=treasury_address,
         system_program_id=SYSTEM_PROGRAM_ID,
-        escrow_program_id=settings.solana_escrow_program_id,
+        escrow_program_id=escrow["escrow_program_id"],
         bmoney_mint=settings.solana_bmoney_mint,
-        escrow_counter_mint=settings.solana_escrow_counter_mint,
-        escrow_release_authority=settings.solana_escrow_release_authority
-        or treasury_address,
+        clipusd_mint=escrow["clipusd_mint"],
+        bonus_vault=escrow["bonus_vault"],
         company_deposit_fee_bps=settings.solana_company_deposit_fee_bps,
         company_withdrawal_fee_bps=settings.solana_company_withdrawal_fee_bps,
         creator_withdrawal_fee_bps=settings.solana_creator_withdrawal_fee_bps,
@@ -131,36 +160,123 @@ async def solana_fee_quote(
 @router.post("/campaign/{campaign_id}/escrow/funding-instruction")
 async def campaign_escrow_funding_instruction(
     campaign_id: int,
-    payload: CampaignEscrowInstructionRequest,
+    payload: EscrowFundingRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    return await build_campaign_funding_instruction(db, campaign_id, payload.company_wallet)
+    return await _escrow(
+        build_escrow_funding_instructions(
+            db, campaign_id, payload.company_wallet, payload.amount, payload.min_bond
+        )
+    )
+
+
+@router.get("/campaign/{campaign_id}/escrow")
+async def campaign_escrow(campaign_id: int, db: AsyncSession = Depends(get_db)):
+    return await _escrow(get_escrow_campaign(db, campaign_id))
+
+
+@router.post("/campaign/{campaign_id}/escrow/settle")
+async def campaign_escrow_settle(
+    campaign_id: int,
+    payload: EscrowSettleRequest,
+    x_oracle_token: OracleToken = None,
+    db: AsyncSession = Depends(get_db),
+    tracking: TrackingClient = Depends(get_tracking),
+):
+    require_oracle_token(x_oracle_token)
+    return await _escrow(
+        settle_payout(
+            db,
+            campaign_id,
+            payload.wallet_address,
+            payload.epoch,
+            payload.units,
+            payload.evidence_hash,
+            tracking,
+        )
+    )
 
 
 @router.post("/campaign/{campaign_id}/escrow/release")
 async def campaign_escrow_release(
     campaign_id: int,
-    payload: CampaignEscrowActionRequest,
+    payload: EscrowReleaseRequest,
+    x_oracle_token: OracleToken = None,
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        instruction = await build_campaign_take_instruction(
-            db, campaign_id, payload.wallet_address
+    return await _escrow(
+        release_payout(
+            db, campaign_id, payload.wallet_address, payload.epoch, x_oracle_token, payload.signature
         )
-    except SolanaServiceError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return instruction
+    )
 
 
-@router.post("/campaign/{campaign_id}/escrow/refund-instruction")
-async def campaign_escrow_refund(
+@router.post("/campaign/{campaign_id}/escrow/flag")
+async def campaign_escrow_flag(
     campaign_id: int,
-    payload: CampaignEscrowActionRequest,
+    payload: EscrowFlagRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    return await build_campaign_refund_instruction(
-        db, campaign_id, payload.wallet_address
+    return await _escrow(
+        build_flag_instruction(
+            db, campaign_id, payload.company_wallet, payload.wallet_address, payload.epoch, payload.reason
+        )
     )
+
+
+@router.post("/campaign/{campaign_id}/escrow/resolve")
+async def campaign_escrow_resolve(
+    campaign_id: int,
+    payload: EscrowResolveRequest,
+    x_oracle_token: OracleToken = None,
+    db: AsyncSession = Depends(get_db),
+):
+    require_oracle_token(x_oracle_token)
+    return await _escrow(
+        resolve_payout(
+            db, campaign_id, payload.wallet_address, payload.epoch, payload.approve, payload.slash_amount
+        )
+    )
+
+
+@router.post("/campaign/{campaign_id}/escrow/close")
+async def campaign_escrow_close(
+    campaign_id: int,
+    payload: EscrowCloseRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _escrow(build_close_instruction(db, campaign_id, payload.company_wallet))
+
+
+@router.post("/campaign/{campaign_id}/escrow/rollover")
+async def campaign_escrow_rollover(
+    campaign_id: int,
+    payload: EscrowRolloverRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _escrow(
+        build_rollover_instruction(db, campaign_id, payload.company_wallet, payload.target_campaign_id)
+    )
+
+
+@router.get("/campaign/{campaign_id}/payouts/{wallet_address}")
+async def campaign_payouts(
+    campaign_id: int, wallet_address: str, db: AsyncSession = Depends(get_db)
+):
+    return await _escrow(list_payouts(db, campaign_id, wallet_address))
+
+
+@router.post("/stake/instruction")
+async def stake_instruction(payload: StakeInstructionRequest):
+    try:
+        return build_stake_instruction(payload.wallet_address, payload.action, payload.amount, payload.bps)
+    except SolanaServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.get("/stake/{wallet_address}")
+async def stake_account(wallet_address: str):
+    return await _escrow(get_stake(wallet_address))
 
 
 @router.post("/withdraw/challenge", response_model=WithdrawalChallengeResponse)

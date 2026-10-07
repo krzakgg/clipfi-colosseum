@@ -51,7 +51,7 @@ const parseJsonField = (value, label) => {
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error()
     return parsed
   } catch {
-    throw new Error(`${label} musi zawierać poprawny obiekt JSON.`)
+    throw new Error(`${label} must be a valid JSON object.`)
   }
 }
 
@@ -62,7 +62,7 @@ const fetchCompanies = async () => {
     const res = await fetch('http://localhost:8000/api/companies')
     if (res.ok) companies.value = await res.json()
   } catch (err) {
-    console.error('Błąd pobierania firm:', err)
+    console.error('Failed to load companies:', err)
   }
 }
 
@@ -246,7 +246,7 @@ const handleUpdate = async () => {
       total_budget: parseFloat(form.total_budget),
       budget_per_creator: form.budget_per_creator ? parseFloat(form.budget_per_creator) : null,
       budget_per_time_unit: form.budget_per_time_unit ? parseFloat(form.budget_per_time_unit) : null,
-      budget_per_language: parseJsonField(form.budget_per_language_str, 'Budżet według języka'),
+      budget_per_language: parseJsonField(form.budget_per_language_str, 'Budget per language'),
       languages: getUniqueLanguages(form.languages),
       tags: getUniqueTags(form.tags),
       min_views: parseInt(form.min_views) || 0,
@@ -280,11 +280,11 @@ const handleUpdate = async () => {
       const details = Array.isArray(data.detail)
         ? data.detail.map(item => `${item.loc?.at(-1) || 'Pole'}: ${item.msg}`).join('; ')
         : data.detail
-      throw new Error(details || 'Błąd podczas edycji kampanii')
+      throw new Error(details || 'Failed to update the campaign')
     }
 
     const data = await response.json()
-    successMessage.value = `Kampania "${data.title}" została zaktualizowana!`
+    successMessage.value = `Campaign "${data.title}" has been updated.`
     coverFile.value = null
     galleryFiles.value = []
     coverPreview.value = ''
@@ -306,7 +306,7 @@ const handleCoverSelected = (event) => {
 const handleGallerySelected = (event) => {
   const selectedFiles = Array.from(event.target.files)
   if (selectedFiles.length > 20) {
-    errorMessage.value = 'Możesz wybrać maksymalnie 20 obrazów do galerii.'
+    errorMessage.value = 'You can select up to 20 gallery images.'
   } else {
     errorMessage.value = ''
   }
@@ -355,10 +355,10 @@ const handleGallerySelected = (event) => {
             <div class="form-group">
               <label>Campaign status</label>
               <select v-model="form.status">
-                <option value="DRAFT">Szkic</option>
-                <option value="ACTIVE">Aktywna</option>
-                <option value="PAUSED">Wstrzymana</option>
-                <option value="COMPLETED">Zakończona</option>
+                <option value="DRAFT">Draft</option>
+                <option value="ACTIVE">Active</option>
+                <option value="PAUSED">Paused</option>
+                <option value="COMPLETED">Completed</option>
                 <option value="CANCELLED">Anulowana</option>
               </select>
             </div>
@@ -378,7 +378,7 @@ const handleGallerySelected = (event) => {
           <div class="form-group">
             <label>Cover image from device</label>
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" @change="handleCoverSelected" />
-            <img v-if="coverPreview" class="image-preview" :src="coverPreview" alt="Podgląd nowego obrazu tytułowego" />
+            <img v-if="coverPreview" class="image-preview" :src="coverPreview" alt="New cover image preview" />
             <label>Or paste URL</label>
             <input v-model="form.cover_image_url" type="url" placeholder="https://.../cover.jpg" />
           </div>
@@ -388,7 +388,7 @@ const handleGallerySelected = (event) => {
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple @change="handleGallerySelected" />
             <small>You can select up to 20 images at once.</small>
             <div v-if="galleryPreviews.length" class="image-preview-grid">
-              <img v-for="preview in galleryPreviews" :key="preview" class="image-preview" :src="preview" alt="Podgląd nowego obrazu galerii" />
+              <img v-for="preview in galleryPreviews" :key="preview" class="image-preview" :src="preview" alt="New gallery image preview" />
             </div>
             <label>Or paste URLs separated by commas</label>
             <input v-model="form.gallery_image_urls_str" type="text" placeholder="https://.../1.jpg, https://.../2.jpg" />

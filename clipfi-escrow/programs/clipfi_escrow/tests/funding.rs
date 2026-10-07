@@ -3,7 +3,7 @@
 mod common;
 
 use {
-    clipfi_escrow::{Campaign, CampaignParams, CampaignStatus, Config},
+    clipfi_escrow::{Campaign, CampaignParams, CampaignStatus, Config, ConfigParams},
     common::*,
     solana_signer::Signer,
 };
@@ -31,10 +31,11 @@ fn vesting_must_be_between_one_second_and_21_days() {
         let ix = init_config_ix(
             &world.admin.pubkey(),
             &world.mint,
-            world.oracle.pubkey(),
-            world.arbiter.pubkey(),
-            vesting_secs,
             &world.program_data,
+            ConfigParams {
+                vesting_secs,
+                ..default_config_params(world.oracle.pubkey(), world.arbiter.pubkey())
+            },
         );
         expect_error(send(&mut world.svm, ix, &[&world.admin]), "InvalidVesting");
     }
@@ -44,10 +45,11 @@ fn vesting_must_be_between_one_second_and_21_days() {
     let ix = init_config_ix(
         &world.admin.pubkey(),
         &world.mint,
-        world.oracle.pubkey(),
-        world.arbiter.pubkey(),
-        21 * DAY,
         &world.program_data,
+        ConfigParams {
+            vesting_secs: 21 * DAY,
+            ..default_config_params(world.oracle.pubkey(), world.arbiter.pubkey())
+        },
     );
     send(&mut world.svm, ix, &[&world.admin]).unwrap();
 }
@@ -57,13 +59,12 @@ fn init_config_rejects_a_mint_with_a_transfer_fee() {
     let mut world = World::new();
     let fee_mint = create_fee_mint(&mut world.svm, &world.admin.pubkey());
     println!("init_config with a Token-2022 mint that has a TransferFeeConfig extension");
-    let ix = init_config_ix(
+    let ix = init_config_ix_with(
         &world.admin.pubkey(),
         &fee_mint,
-        world.oracle.pubkey(),
-        world.arbiter.pubkey(),
-        VESTING,
         &world.program_data,
+        default_config_params(world.oracle.pubkey(), world.arbiter.pubkey()),
+        TOKEN_2022_PROGRAM,
     );
     expect_error(send(&mut world.svm, ix, &[&world.admin]), "UnsupportedMint");
 }
@@ -76,10 +77,8 @@ fn init_config_is_gated_to_the_program_upgrade_authority() {
     let ix = init_config_ix(
         &intruder.pubkey(),
         &world.mint,
-        intruder.pubkey(),
-        intruder.pubkey(),
-        VESTING,
         &world.program_data,
+        default_config_params(intruder.pubkey(), intruder.pubkey()),
     );
     expect_error(send(&mut world.svm, ix, &[&intruder]), "Unauthorized");
 
@@ -90,10 +89,8 @@ fn init_config_is_gated_to_the_program_upgrade_authority() {
     let ix = init_config_ix(
         &world.admin.pubkey(),
         &world.mint,
-        world.oracle.pubkey(),
-        world.arbiter.pubkey(),
-        VESTING,
         &world.program_data,
+        default_config_params(world.oracle.pubkey(), world.arbiter.pubkey()),
     );
     send(&mut world.svm, ix, &[&world.admin]).unwrap();
     let config: Config = fetch(&world.svm, &config_pda());
@@ -108,10 +105,11 @@ fn config_can_be_created_only_once() {
     let ix = init_config_ix(
         &intruder.pubkey(),
         &world.mint,
-        intruder.pubkey(),
-        intruder.pubkey(),
-        DAY,
         &world.program_data,
+        ConfigParams {
+            vesting_secs: DAY,
+            ..default_config_params(intruder.pubkey(), intruder.pubkey())
+        },
     );
     expect_error(send(&mut world.svm, ix, &[&intruder]), "already in use");
 

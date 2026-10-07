@@ -10,7 +10,7 @@ export const uploadImage = async (file) => {
   })
 
   const data = await response.json()
-  if (!response.ok) throw new Error(data.detail || 'Nie udało się wgrać obrazu')
+  if (!response.ok) throw new Error(data.detail || 'Failed to upload the image')
   return data.url
 }
 
@@ -26,6 +26,6 @@ export const uploadImages = async (files) => {
   })
 
   const data = await response.json()
-  if (!response.ok) throw new Error(data.detail || 'Nie udało się wgrać obrazów')
+  if (!response.ok) throw new Error(data.detail || 'Failed to upload the images')
   return data.urls
 }

@@ -293,6 +293,69 @@
       ]
     },
     {
+      "name": "fund_bonus_pool",
+      "discriminator": [
+        100,
+        221,
+        65,
+        252,
+        148,
+        193,
+        251,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "funder",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "bonus_vault",
+          "writable": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "funder_token",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "fund_campaign",
       "discriminator": [
         109,
@@ -411,11 +474,75 @@
           }
         },
         {
+          "name": "bonus_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
           "name": "program",
           "address": "GAXMVFUXzAPBwhW4cF127HiSZmiY791XX2mBFEqqBwx"
         },
         {
           "name": "program_data"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program"
         },
         {
           "name": "system_program",
@@ -424,16 +551,174 @@
       ],
       "args": [
         {
-          "name": "oracle",
-          "type": "pubkey"
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "ConfigParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "propose_rates",
+      "discriminator": [
+        131,
+        3,
+        194,
+        163,
+        92,
+        203,
+        88,
+        140
+      ],
+      "accounts": [
+        {
+          "name": "brand",
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
         },
         {
-          "name": "arbiter",
-          "type": "pubkey"
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
         },
         {
-          "name": "vesting_secs",
-          "type": "i64"
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "brand"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaign_id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "rates",
+          "type": {
+            "array": [
+              "u64",
+              4
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "propose_standards",
+      "discriminator": [
+        108,
+        160,
+        60,
+        185,
+        226,
+        8,
+        11,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "brand",
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "brand"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaign_id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "standards_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },
@@ -456,6 +741,24 @@
           "signer": true
         },
         {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "campaign",
           "writable": true,
           "relations": [
@@ -465,6 +768,7 @@
         {
           "name": "mint",
           "relations": [
+            "config",
             "campaign"
           ]
         },
@@ -473,6 +777,13 @@
           "writable": true,
           "relations": [
             "campaign"
+          ]
+        },
+        {
+          "name": "bonus_vault",
+          "writable": true,
+          "relations": [
+            "config"
           ]
         },
         {
@@ -579,6 +890,34 @@
           ]
         },
         {
+          "name": "stake",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_token",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "associated_token_program",
           "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
@@ -591,6 +930,74 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "request_unstake",
+      "discriminator": [
+        44,
+        154,
+        110,
+        253,
+        160,
+        202,
+        54,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "signer": true,
+          "relations": [
+            "stake"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "resolve",
@@ -687,6 +1094,201 @@
       ]
     },
     {
+      "name": "rollover",
+      "discriminator": [
+        147,
+        98,
+        248,
+        23,
+        82,
+        182,
+        25,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "brand",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "campaign",
+            "target_campaign"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "brand"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaign_id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "target_campaign",
+          "writable": true
+        },
+        {
+          "name": "target_vault",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "campaign",
+            "target_campaign"
+          ]
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_auto_restake",
+      "discriminator": [
+        51,
+        239,
+        104,
+        152,
+        89,
+        58,
+        192,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "signer": true,
+          "relations": [
+            "stake"
+          ]
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "set_paused",
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "settle",
       "discriminator": [
         175,
@@ -758,6 +1360,27 @@
         },
         {
           "name": "creator"
+        },
+        {
+          "name": "stake",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
         },
         {
           "name": "position",
@@ -848,6 +1471,380 @@
           }
         }
       ]
+    },
+    {
+      "name": "slash",
+      "discriminator": [
+        204,
+        141,
+        18,
+        161,
+        8,
+        177,
+        92,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "arbiter",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "config",
+            "campaign"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "creator",
+          "relations": [
+            "stake"
+          ]
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_token",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "stake",
+      "discriminator": [
+        206,
+        176,
+        202,
+        18,
+        200,
+        209,
+        179,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "stake"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "creator_token",
+          "writable": true
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "ConfigParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdraw_stake",
+      "discriminator": [
+        153,
+        8,
+        22,
+        138,
+        105,
+        176,
+        87,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "signer": true,
+          "relations": [
+            "stake"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_token",
+          "writable": true
+        },
+        {
+          "name": "creator_token",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -902,9 +1899,87 @@
         158,
         228
       ]
+    },
+    {
+      "name": "Stake",
+      "discriminator": [
+        150,
+        197,
+        176,
+        29,
+        55,
+        132,
+        112,
+        149
+      ]
     }
   ],
   "events": [
+    {
+      "name": "AutoRestakeSet",
+      "discriminator": [
+        246,
+        223,
+        177,
+        225,
+        216,
+        108,
+        72,
+        150
+      ]
+    },
+    {
+      "name": "AutoRestaked",
+      "discriminator": [
+        55,
+        66,
+        24,
+        241,
+        172,
+        177,
+        95,
+        88
+      ]
+    },
+    {
+      "name": "BonusPaid",
+      "discriminator": [
+        35,
+        143,
+        208,
+        247,
+        114,
+        44,
+        210,
+        12
+      ]
+    },
+    {
+      "name": "BonusPoolFunded",
+      "discriminator": [
+        197,
+        216,
+        200,
+        93,
+        201,
+        240,
+        209,
+        56
+      ]
+    },
+    {
+      "name": "BonusSkipped",
+      "discriminator": [
+        63,
+        226,
+        82,
+        178,
+        183,
+        18,
+        238,
+        20
+      ]
+    },
     {
       "name": "CampaignClosed",
       "discriminator": [
@@ -942,6 +2017,32 @@
         227,
         24,
         212
+      ]
+    },
+    {
+      "name": "ConfigUpdated",
+      "discriminator": [
+        40,
+        241,
+        230,
+        122,
+        11,
+        19,
+        198,
+        194
+      ]
+    },
+    {
+      "name": "PausedSet",
+      "discriminator": [
+        171,
+        125,
+        127,
+        156,
+        233,
+        81,
+        68,
+        66
       ]
     },
     {
@@ -984,6 +2085,45 @@
       ]
     },
     {
+      "name": "RatesApplied",
+      "discriminator": [
+        187,
+        195,
+        50,
+        82,
+        227,
+        183,
+        155,
+        49
+      ]
+    },
+    {
+      "name": "RatesProposed",
+      "discriminator": [
+        120,
+        79,
+        222,
+        172,
+        246,
+        1,
+        205,
+        127
+      ]
+    },
+    {
+      "name": "RolledOver",
+      "discriminator": [
+        46,
+        173,
+        32,
+        216,
+        228,
+        119,
+        39,
+        117
+      ]
+    },
+    {
       "name": "Settled",
       "discriminator": [
         232,
@@ -994,6 +2134,84 @@
         124,
         145,
         238
+      ]
+    },
+    {
+      "name": "Slashed",
+      "discriminator": [
+        98,
+        59,
+        249,
+        154,
+        233,
+        53,
+        98,
+        194
+      ]
+    },
+    {
+      "name": "StakeWithdrawn",
+      "discriminator": [
+        33,
+        120,
+        159,
+        58,
+        140,
+        255,
+        174,
+        79
+      ]
+    },
+    {
+      "name": "Staked",
+      "discriminator": [
+        11,
+        146,
+        45,
+        205,
+        230,
+        58,
+        213,
+        240
+      ]
+    },
+    {
+      "name": "StandardsApplied",
+      "discriminator": [
+        214,
+        23,
+        13,
+        99,
+        194,
+        170,
+        143,
+        238
+      ]
+    },
+    {
+      "name": "StandardsProposed",
+      "discriminator": [
+        39,
+        174,
+        137,
+        152,
+        209,
+        0,
+        65,
+        137
+      ]
+    },
+    {
+      "name": "UnstakeRequested",
+      "discriminator": [
+        21,
+        253,
+        177,
+        85,
+        129,
+        206,
+        42,
+        152
       ]
     }
   ],
@@ -1097,9 +2315,183 @@
       "code": 6019,
       "name": "Unauthorized",
       "msg": "only the program upgrade authority may initialize the config"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidBps",
+      "msg": "bonus or restake share must not exceed the allowed basis points"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidTiers",
+      "msg": "bonus tiers must have increasing minimum bonds"
+    },
+    {
+      "code": 6022,
+      "name": "BondTooLow",
+      "msg": "creator bond is below the campaign minimum"
+    },
+    {
+      "code": 6023,
+      "name": "InsufficientStake",
+      "msg": "bond is smaller than the requested amount"
+    },
+    {
+      "code": 6024,
+      "name": "UnstakeNotReady",
+      "msg": "unstake cooldown has not passed"
+    },
+    {
+      "code": 6025,
+      "name": "NothingToWithdraw",
+      "msg": "nothing is pending withdrawal"
+    },
+    {
+      "code": 6026,
+      "name": "NothingPending",
+      "msg": "rates have no pending change"
+    },
+    {
+      "code": 6027,
+      "name": "InvalidRolloverTarget",
+      "msg": "rollover target must be an active campaign of the same brand with the same mint"
+    },
+    {
+      "code": 6028,
+      "name": "Paused",
+      "msg": "program is paused"
+    },
+    {
+      "code": 6029,
+      "name": "StakeRequired",
+      "msg": "this payout auto-restakes, pass the stake accounts"
     }
   ],
   "types": [
+    {
+      "name": "AutoRestakeSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "auto_restake_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AutoRestaked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BonusPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "bonus",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BonusPoolFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "pool_balance",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BonusSkipped",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "bonus",
+            "type": "u64"
+          },
+          {
+            "name": "pool_balance",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BonusTier",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_bond",
+            "type": "u64"
+          },
+          {
+            "name": "bonus_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
     {
       "name": "Campaign",
       "type": {
@@ -1143,7 +2535,24 @@
             }
           },
           {
+            "name": "pending_rates",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "pending_rates_at",
+            "type": "i64"
+          },
+          {
             "name": "max_per_creator",
+            "type": "u64"
+          },
+          {
+            "name": "min_bond",
             "type": "u64"
           },
           {
@@ -1162,6 +2571,23 @@
                 32
               ]
             }
+          },
+          {
+            "name": "standards_version",
+            "type": "u32"
+          },
+          {
+            "name": "pending_standards_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "pending_standards_at",
+            "type": "i64"
           },
           {
             "name": "status",
@@ -1269,6 +2695,10 @@
             "type": "u64"
           },
           {
+            "name": "min_bond",
+            "type": "u64"
+          },
+          {
             "name": "start_ts",
             "type": "i64"
           },
@@ -1324,12 +2754,122 @@
             "type": "pubkey"
           },
           {
+            "name": "bonus_vault",
+            "type": "pubkey"
+          },
+          {
             "name": "vesting_secs",
             "type": "i64"
           },
           {
+            "name": "bonded_vesting_secs",
+            "type": "i64"
+          },
+          {
+            "name": "unstake_cooldown_secs",
+            "type": "i64"
+          },
+          {
+            "name": "notice_secs",
+            "type": "i64"
+          },
+          {
+            "name": "bonus_tiers",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "BonusTier"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "arbiter",
+            "type": "pubkey"
+          },
+          {
+            "name": "vesting_secs",
+            "type": "i64"
+          },
+          {
+            "name": "bonded_vesting_secs",
+            "type": "i64"
+          },
+          {
+            "name": "unstake_cooldown_secs",
+            "type": "i64"
+          },
+          {
+            "name": "notice_secs",
+            "type": "i64"
+          },
+          {
+            "name": "bonus_tiers",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "BonusTier"
+                  }
+                },
+                3
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "arbiter",
+            "type": "pubkey"
+          },
+          {
+            "name": "vesting_secs",
+            "type": "i64"
+          },
+          {
+            "name": "bonded_vesting_secs",
+            "type": "i64"
+          },
+          {
+            "name": "unstake_cooldown_secs",
+            "type": "i64"
+          },
+          {
+            "name": "notice_secs",
+            "type": "i64"
           }
         ]
       }
@@ -1376,6 +2916,18 @@
       }
     },
     {
+      "name": "PausedSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "paused",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "Payout",
       "type": {
         "kind": "struct",
@@ -1404,6 +2956,18 @@
           {
             "name": "amount",
             "type": "u64"
+          },
+          {
+            "name": "bonus_bps",
+            "type": "u16"
+          },
+          {
+            "name": "restake_bps",
+            "type": "u16"
+          },
+          {
+            "name": "standards_version",
+            "type": "u32"
           },
           {
             "name": "evidence_hash",
@@ -1531,6 +3095,72 @@
       }
     },
     {
+      "name": "RatesApplied",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "rates",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RatesProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "rates",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RolledOver",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "from_campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "to_campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Settled",
       "type": {
         "kind": "struct",
@@ -1572,6 +3202,180 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Slashed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bond",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Stake",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "token",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "pending_unstake",
+            "type": "u64"
+          },
+          {
+            "name": "unstake_at",
+            "type": "i64"
+          },
+          {
+            "name": "auto_restake_bps",
+            "type": "u16"
+          },
+          {
+            "name": "slashed_total",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bond",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Staked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bond",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StandardsApplied",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "standards_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "standards_version",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StandardsProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "standards_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UnstakeRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "unstake_at",
+            "type": "i64"
           }
         ]
       }

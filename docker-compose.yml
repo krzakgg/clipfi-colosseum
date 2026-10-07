@@ -27,6 +27,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ${CLIPFI_IDL_DIR:-./clipfi-escrow/idl}:/clipfi/idl:ro
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres_password@postgres_db:5432/postgres
       TRACKING_INTERNAL_URL: http://api-internal:8000
@@ -44,6 +47,7 @@ services:
   frontend:
     build: ./frontend
     container_name: vue_frontend
+    command: sh -c "npm install && npm run dev"
     ports:
       - "5173:5173"
     volumes:

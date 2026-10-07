@@ -30,7 +30,7 @@ const handleDelete = async (id, title) => {
     const res = await fetch(`http://localhost:8000/api/campaigns/${id}`, {
       method: 'DELETE'
     })
-    if (!res.ok) throw new Error('Błąd podczas usuwania kampanii')
+    if (!res.ok) throw new Error('Failed to delete the campaign')
 
     // Usuwamy kampanię z lokalnej tablicy, aby nie przeładowywać całej strony
     campaigns.value = campaigns.value.filter(c => c.id !== id)
@@ -55,7 +55,7 @@ onMounted(fetchCampaigns)
   <div class="list-container">
     <div class="header-actions">
       <h2>Campaigns</h2>
-      <button @click="fetchCampaigns" class="btn-refresh">🔄 Refresh</button>
+      <button @click="fetchCampaigns" class="btn-refresh">Refresh</button>
     </div>
 
     <div v-if="loading" class="state-msg">Loading campaigns...</div>
@@ -95,13 +95,13 @@ onMounted(fetchCampaigns)
             </td>
             <td class="actions-cell">
               <button @click="handleView(c.id)" class="btn-action btn-view">
-                👁️ Details
+                Details
               </button>
               <button @click="handleEdit(c.id)" class="btn-action btn-edit">
-                ✏️ Edit
+                Edit
               </button>
               <button @click="handleDelete(c.id, c.title)" class="btn-action btn-delete">
-                🗑️ Delete
+                Delete
               </button>
             </td>
           </tr>

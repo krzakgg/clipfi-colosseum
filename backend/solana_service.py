@@ -2,9 +2,10 @@ import json
 import secrets
 import base64
 import hashlib
+from struct import error as struct_error
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import base58
 from fastapi import HTTPException, status
@@ -27,9 +28,21 @@ from solana.rpc.core import (
     UnconfirmedTxError,
 )
 
+from solana.rpc.types import TxOpts, MemcmpOpts
+
+from clipfi_escrow import (
+    ASSOCIATED_TOKEN_PROGRAM_ID as _ASSOCIATED_TOKEN_PROGRAM,
+    SYSTEM_PROGRAM_ID as _SYSTEM_PROGRAM,
+    TOKEN_PROGRAM_ID as _TOKEN_PROGRAM,
+    IdlError,
+    IdlProgram,
+    account_field_offset,
+    associated_token_address,
+    resolve_idl_path,
+)
 from models import (
     Campaign,
-    CampaignSubmission,
+    CampaignRefLink,
     Company,
     Creator,
     SolanaDeposit,
@@ -37,10 +50,11 @@ from models import (
     SolanaWithdrawalChallenge,
 )
 from settings import get_settings
+from tracking_client import TrackingClient, TrackingError
 
-SYSTEM_PROGRAM_ID = "11111111111111111111111111111111"
-TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+SYSTEM_PROGRAM_ID = str(_SYSTEM_PROGRAM)
+TOKEN_PROGRAM_ID = str(_TOKEN_PROGRAM)
+ASSOCIATED_TOKEN_PROGRAM_ID = str(_ASSOCIATED_TOKEN_PROGRAM)
 CHALLENGE_TTL_SECONDS = 300
 WITHDRAWAL_PROCESSING = "processing"
 WITHDRAWAL_COMPLETED = "completed"
@@ -462,216 +476,630 @@ async def get_balance(address: str) -> int:
         return response.value
 
 
-def _escrow_config() -> tuple[Pubkey, Pubkey, Pubkey, Pubkey]:
+_program_cache: dict[tuple[str, float, str], IdlProgram] = {}
+
+
+@dataclass(frozen=True)
+class EscrowContext:
+    program: IdlProgram
+    mint: Pubkey
+    config: Pubkey
+    bonus_vault: Pubkey
+    brand: Pubkey
+    campaign: Pubkey
+    vault: Pubkey
+
+    def brand_token(self) -> Pubkey:
+        return associated_token_address(self.brand, self.mint)
+
+    def creator_token(self, creator: Pubkey) -> Pubkey:
+        return associated_token_address(creator, self.mint)
+
+    def stake_token(self, stake: Pubkey) -> Pubkey:
+        return associated_token_address(stake, self.mint)
+
+
+def escrow_program() -> IdlProgram:
     settings = get_settings()
-    if (
-        not settings.solana_escrow_program_id
-        or not settings.solana_bmoney_mint
-        or not settings.solana_escrow_counter_mint
-    ):
-        raise SolanaServiceError(
-            "Escrow wymaga SOLANA_ESCROW_PROGRAM_ID, SOLANA_BMONEY_MINT i "
-            "SOLANA_ESCROW_COUNTER_MINT"
+    try:
+        path = resolve_idl_path(settings.solana_escrow_idl_path or None)
+    except IdlError as exc:
+        raise SolanaServiceError(str(exc)) from exc
+    key = (str(path), path.stat().st_mtime, settings.solana_escrow_program_id)
+    program = _program_cache.get(key)
+    if program is None:
+        try:
+            program = IdlProgram.load(path, settings.solana_escrow_program_id or None)
+        except (OSError, ValueError, KeyError, IdlError) as exc:
+            raise SolanaServiceError(f"Nie można wczytać IDL clipfi_escrow: {exc}") from exc
+        _program_cache.clear()
+        _program_cache[key] = program
+    return program
+
+
+def clipusd_mint() -> Pubkey:
+    settings = get_settings()
+    if not settings.solana_bmoney_mint:
+        raise SolanaServiceError("Escrow wymaga SOLANA_BMONEY_MINT")
+    return validate_address(settings.solana_bmoney_mint)
+
+
+def token_units(amount: Decimal | str | int) -> int:
+    scale = Decimal(10) ** get_settings().solana_bmoney_decimals
+    scaled = (Decimal(str(amount)) * scale).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    if scaled < 0:
+        raise HTTPException(status_code=400, detail="Kwota nie może być ujemna")
+    return int(scaled)
+
+
+def _utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def rate_per_mille_from_campaign(campaign: Campaign) -> list[int]:
+    scale = Decimal(10) ** get_settings().solana_bmoney_decimals
+    views = Decimal(0)
+    if campaign.payout_per_views is not None:
+        step = Decimal(campaign.views_unit_step or 1000)
+        views = (Decimal(str(campaign.payout_per_views)) * Decimal(1000) / step * scale).quantize(
+            Decimal(1), rounding=ROUND_HALF_UP
         )
-    program_id = validate_address(settings.solana_escrow_program_id)
-    mint = validate_address(settings.solana_bmoney_mint)
-    authority = validate_address(
-        settings.solana_escrow_release_authority
-        or str(get_treasury_keypair().pubkey())
-    )
-    return program_id, mint, validate_address(settings.solana_escrow_counter_mint), authority
+    clicks = Decimal(0)
+    if campaign.payout_per_click is not None:
+        clicks = (Decimal(str(campaign.payout_per_click)) * Decimal(1000) * scale).quantize(
+            Decimal(1), rounding=ROUND_HALF_UP
+        )
+    return [int(views), int(views), 0, int(clicks)]
 
 
-def _associated_token_address(owner: Pubkey, mint: Pubkey) -> Pubkey:
-    address, _ = Pubkey.find_program_address(
-        [bytes(owner), bytes(Pubkey.from_string(TOKEN_PROGRAM_ID)), bytes(mint)],
-        Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID),
-    )
-    return address
-
-
-def _anchor_discriminator(name: str) -> bytes:
-    return hashlib.sha256(f"global:{name}".encode("utf-8")).digest()[:8]
-
-
-def _campaign_pda(program_id: Pubkey, maker: Pubkey, campaign_id: int) -> Pubkey:
-    address, _ = Pubkey.find_program_address(
-        [b"offer", bytes(maker), campaign_id.to_bytes(8, "little")],
-        program_id,
-    )
-    return address
-
-
-def _instruction_payload(instruction: Instruction) -> dict:
+def campaign_chain_params(campaign: Campaign, min_bond: Decimal | str | int = 0) -> dict:
+    now = datetime.now(timezone.utc)
+    start = _utc(campaign.start_date) if campaign.start_date else now
+    end = _utc(campaign.end_date) if campaign.end_date else now + timedelta(days=30)
+    per_creator = campaign.budget_per_creator
+    if per_creator is None:
+        per_creator = campaign.total_budget or 0
     return {
-        "program_id": str(instruction.program_id),
-        "data": base64.b64encode(bytes(instruction.data)).decode("ascii"),
-        "accounts": [
-            {
-                "pubkey": str(meta.pubkey),
-                "is_signer": meta.is_signer,
-                "is_writable": meta.is_writable,
-            }
-            for meta in instruction.accounts
-        ],
+        "rate_per_mille": rate_per_mille_from_campaign(campaign),
+        "max_per_creator": token_units(Decimal(str(per_creator))),
+        "min_bond": token_units(min_bond),
+        "start_ts": int(start.timestamp()),
+        "end_ts": int(end.timestamp()),
+        "standards_hash": list(hashlib.sha256((campaign.brand_guidelines or "").encode("utf-8")).digest()),
     }
 
 
-async def build_campaign_funding_instruction(
-    db: AsyncSession, campaign_id: int, company_wallet: str
-) -> dict:
-    campaign = await db.get(Campaign, campaign_id)
-    if not campaign:
-        raise HTTPException(status_code=404, detail="Kampania nie istnieje")
-    company = await db.get(Company, campaign.company_id)
-    if not company or company.solana_wallet_address != company_wallet:
-        raise HTTPException(status_code=403, detail="Portfel nie należy do firmy kampanii")
-    if campaign.total_budget <= 0:
-        raise HTTPException(status_code=400, detail="Kampania nie ma dodatniego budżetu")
-    creator_result = await db.execute(
-        select(Creator)
-        .join(CampaignSubmission, CampaignSubmission.creator_id == Creator.id)
-        .where(CampaignSubmission.campaign_id == campaign_id)
-        .order_by(CampaignSubmission.id.asc())
+def escrow_context(brand: Pubkey, campaign_id: int) -> EscrowContext:
+    program = escrow_program()
+    mint = clipusd_mint()
+    config = program.config_pda()
+    campaign = program.campaign_pda(brand, campaign_id)
+    return EscrowContext(
+        program=program,
+        mint=mint,
+        config=config,
+        bonus_vault=associated_token_address(config, mint),
+        brand=brand,
+        campaign=campaign,
+        vault=associated_token_address(campaign, mint),
     )
-    creator = creator_result.scalars().first()
-    creator_wallet = creator.solana_wallet_address if creator else None
-    if not creator_wallet:
-        raise HTTPException(
-            status_code=400,
-            detail="Kampania musi mieć przypisanego twórcę z portfelem Solana",
-        )
 
-    program_id, mint, counter_mint, _ = _escrow_config()
-    maker = validate_address(company_wallet)
-    maker_token = _associated_token_address(maker, mint)
-    offer = _campaign_pda(program_id, maker, campaign_id)
-    vault = _associated_token_address(offer, mint)
-    amount = int(
-        Decimal(str(campaign.total_budget))
-        * Decimal(10 ** get_settings().solana_bmoney_decimals)
-    )
-    data = (
-        _anchor_discriminator("make_offer")
-        + campaign_id.to_bytes(8, "little")
-        + amount.to_bytes(8, "little")
-        + (0).to_bytes(8, "little")
-    )
-    instruction = Instruction(
-        program_id,
-        data,
-        [
-            AccountMeta(maker, True, True),
-            AccountMeta(mint, False, False),
-            AccountMeta(counter_mint, False, False),
-            AccountMeta(maker_token, False, True),
-            AccountMeta(offer, False, True),
-            AccountMeta(vault, False, True),
-            AccountMeta(Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID), False, False),
-            AccountMeta(Pubkey.from_string(TOKEN_PROGRAM_ID), False, False),
-            AccountMeta(Pubkey.from_string(SYSTEM_PROGRAM_ID), False, False),
-        ],
-    )
-    return {
-        "campaign_id": campaign_id,
-        "amount": amount,
-        "mint": str(mint),
-        "offer": str(offer),
-        "vault": str(vault),
-        "counter_mint": str(counter_mint),
-        "model": "make/take/refund",
-        "instruction": _instruction_payload(instruction),
+
+def escrow_config_view() -> dict:
+    settings = get_settings()
+    view = {
+        "escrow_program_id": settings.solana_escrow_program_id,
+        "clipusd_mint": settings.solana_bmoney_mint,
+        "bonus_vault": "",
     }
+    try:
+        program = escrow_program()
+        view["escrow_program_id"] = str(program.program_id)
+        if settings.solana_bmoney_mint:
+            view["bonus_vault"] = str(associated_token_address(program.config_pda(), clipusd_mint()))
+    except (SolanaServiceError, HTTPException):
+        pass
+    return view
 
 
-async def build_campaign_take_instruction(
-    db: AsyncSession, campaign_id: int, creator_wallet: str
-) -> dict:
+def oracle_token_valid(token: str | None) -> bool:
+    expected = get_settings().solana_oracle_token.get_secret_value()
+    return bool(expected and token) and secrets.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+
+
+def require_oracle_token(token: str | None) -> None:
+    if not oracle_token_valid(token):
+        raise HTTPException(status_code=403, detail="Nieprawidłowy token wyroczni")
+
+
+def build_release_message(campaign_id: int, epoch: int, wallet_address: str) -> str:
+    return f"WAGGI release\ncampaign_id: {campaign_id}\nepoch: {epoch}\nwallet_address: {wallet_address}"
+
+
+def release_signature_valid(campaign_id: int, epoch: int, wallet_address: str, signature: str | None) -> bool:
+    if not signature:
+        return False
+    try:
+        return Signature.from_bytes(base58.b58decode(signature)).verify(
+            validate_address(wallet_address), build_release_message(campaign_id, epoch, wallet_address).encode("utf-8")
+        )
+    except (ValueError, TypeError):
+        return False
+
+
+_RPC_ERRORS = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    SolanaRpcException,
+    RPCException,
+    RPCNoResultException,
+    TransactionExpiredBlockheightExceededError,
+    UnconfirmedTxError,
+)
+
+
+async def rpc_account_data(address: Pubkey) -> bytes | None:
+    try:
+        async with AsyncClient(get_settings().solana_rpc_url) as client:
+            response = await client.get_account_info(address, commitment=Confirmed, encoding="base64")
+    except _RPC_ERRORS as exc:
+        raise SolanaServiceError(f"RPC Solany nie odpowiada: {exc}") from exc
+    if response.value is None:
+        return None
+    return bytes(response.value.data)
+
+
+async def rpc_program_accounts(program_id: Pubkey, filters: list[MemcmpOpts]) -> list[tuple[str, bytes]]:
+    try:
+        async with AsyncClient(get_settings().solana_rpc_url) as client:
+            response = await client.get_program_accounts(
+                program_id, commitment=Confirmed, encoding="base64", filters=filters
+            )
+    except (RPCException, RPCNoResultException):
+        return []
+    except _RPC_ERRORS as exc:
+        raise SolanaServiceError(f"RPC Solany nie odpowiada: {exc}") from exc
+    return [(str(item.pubkey), bytes(item.account.data)) for item in response.value or []]
+
+
+async def read_account(name: str, address: Pubkey) -> dict | None:
+    data = await rpc_account_data(address)
+    if data is None:
+        return None
+    try:
+        return escrow_program().decode_account(name, data)
+    except (IdlError, struct_error) as exc:
+        raise SolanaServiceError(f"Nie można zdekodować konta {name}: {exc}") from exc
+
+
+async def send_instructions(keypair: Keypair, instructions: list[Instruction]) -> str:
+    try:
+        async with AsyncClient(get_settings().solana_rpc_url) as client:
+            blockhash = await client.get_latest_blockhash(commitment=Finalized)
+            if not blockhash.value:
+                raise SolanaServiceError("Nie udało się pobrać blockhasha Solany")
+            message = MessageV0.try_compile(
+                payer=keypair.pubkey(),
+                instructions=instructions,
+                address_lookup_table_accounts=[],
+                recent_blockhash=blockhash.value.blockhash,
+            )
+            result = await client.send_transaction(
+                VersionedTransaction(message, [keypair]), opts=TxOpts(preflight_commitment=Confirmed)
+            )
+            if not result.value:
+                raise SolanaServiceError("RPC Solany nie zwróciło sygnatury transakcji")
+            confirmation = await client.confirm_transaction(result.value, commitment=Confirmed)
+            statuses = confirmation.value if isinstance(confirmation.value, list) else []
+            if statuses and statuses[0] is not None and getattr(statuses[0], "err", None):
+                raise SolanaServiceError(f"Transakcja odrzucona: {statuses[0].err}")
+            return str(result.value)
+    except SolanaServiceError:
+        raise
+    except _RPC_ERRORS as exc:
+        raise SolanaServiceError(f"Nie udało się wysłać transakcji: {exc}") from exc
+
+
+async def _campaign_with_brand(db: AsyncSession, campaign_id: int) -> tuple[Campaign, Company, Pubkey]:
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Kampania nie istnieje")
-    creator_result = await db.execute(
-        select(Creator)
-        .join(CampaignSubmission, CampaignSubmission.creator_id == Creator.id)
-        .where(CampaignSubmission.campaign_id == campaign_id)
-        .order_by(CampaignSubmission.id.asc())
-    )
-    creator = creator_result.scalars().first()
-    if (
-        not creator
-        or not creator.solana_wallet_address
-        or creator.solana_wallet_address != creator_wallet
-    ):
-        raise HTTPException(status_code=400, detail="Brak portfela twórcy")
-
-    program_id, mint, counter_mint, _ = _escrow_config()
     company = await db.get(Company, campaign.company_id)
     if not company or not company.solana_wallet_address:
-        raise HTTPException(status_code=400, detail="Brak portfela firmy")
-    maker = validate_address(company.solana_wallet_address)
-    creator_key = validate_address(creator.solana_wallet_address)
-    offer = _campaign_pda(program_id, maker, campaign_id)
-    vault = _associated_token_address(offer, mint)
-    creator_token = _associated_token_address(creator_key, mint)
-    creator_counter = _associated_token_address(creator_key, counter_mint)
-    maker_counter = _associated_token_address(maker, counter_mint)
-    instruction = Instruction(
-        program_id,
-        _anchor_discriminator("take_offer"),
-        [
-            AccountMeta(creator_key, True, True),
-            AccountMeta(maker, False, True),
-            AccountMeta(mint, False, False),
-            AccountMeta(counter_mint, False, False),
-            AccountMeta(creator_token, False, True),
-            AccountMeta(creator_counter, False, True),
-            AccountMeta(maker_counter, False, True),
-            AccountMeta(offer, False, True),
-            AccountMeta(vault, False, True),
-            AccountMeta(Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID), False, False),
-            AccountMeta(Pubkey.from_string(TOKEN_PROGRAM_ID), False, False),
-            AccountMeta(Pubkey.from_string(SYSTEM_PROGRAM_ID), False, False),
-        ],
-    )
+        raise HTTPException(status_code=400, detail="Firma nie ma zweryfikowanego portfela Solana")
+    return campaign, company, validate_address(company.solana_wallet_address)
+
+
+def _require_company_wallet(company: Company, company_wallet: str) -> None:
+    if company.solana_wallet_address != company_wallet:
+        raise HTTPException(status_code=403, detail="Portfel nie należy do firmy kampanii")
+
+
+def _common_accounts(ctx: EscrowContext) -> dict:
     return {
-        "campaign_id": campaign_id,
-        "model": "take_offer",
-        "offer": str(offer),
-        "vault": str(vault),
-        "instruction": _instruction_payload(instruction),
+        "config": ctx.config,
+        "mint": ctx.mint,
+        "campaign": ctx.campaign,
+        "vault": ctx.vault,
+        "bonus_vault": ctx.bonus_vault,
+        "token_program": _TOKEN_PROGRAM,
+        "associated_token_program": _ASSOCIATED_TOKEN_PROGRAM,
+        "system_program": _SYSTEM_PROGRAM,
     }
 
 
-async def build_campaign_refund_instruction(
-    db: AsyncSession, campaign_id: int, company_wallet: str
+def _enum_name(value) -> str:
+    if isinstance(value, dict):
+        return next(iter(value))
+    return str(value)
+
+
+def _campaign_view(account: dict) -> dict:
+    return {
+        "brand": account["brand"],
+        "campaign_id": int(account["campaign_id"]),
+        "mint": account["mint"],
+        "vault": account["vault"],
+        "funded_total": str(account["funded_total"]),
+        "reserved": str(account["reserved"]),
+        "paid_total": str(account["paid_total"]),
+        "rate_per_mille": [str(rate) for rate in account["rate_per_mille"]],
+        "pending_rates": [str(rate) for rate in account.get("pending_rates", [])],
+        "pending_rates_at": int(account.get("pending_rates_at", 0)),
+        "max_per_creator": str(account["max_per_creator"]),
+        "min_bond": str(account["min_bond"]),
+        "start_ts": int(account["start_ts"]),
+        "end_ts": int(account["end_ts"]),
+        "standards_hash": bytes(account["standards_hash"]).hex(),
+        "standards_version": int(account["standards_version"]),
+        "status": _enum_name(account["status"]),
+    }
+
+
+def _payout_view(address: str, payout: dict) -> dict:
+    return {
+        "address": address,
+        "campaign": payout["campaign"],
+        "creator": payout["creator"],
+        "epoch": int(payout["epoch"]),
+        "units": [str(unit) for unit in payout["units"]],
+        "amount": str(payout["amount"]),
+        "bonus_bps": int(payout["bonus_bps"]),
+        "restake_bps": int(payout.get("restake_bps", 0) or 0),
+        "standards_version": int(payout["standards_version"]),
+        "evidence_hash": bytes(payout["evidence_hash"]).hex(),
+        "unlock_ts": int(payout["unlock_ts"]),
+        "status": _enum_name(payout["status"]),
+        "rent_payer": payout["rent_payer"],
+    }
+
+
+async def build_escrow_funding_instructions(
+    db: AsyncSession, campaign_id: int, company_wallet: str, amount: Decimal, min_bond: Decimal = Decimal(0)
 ) -> dict:
-    campaign = await db.get(Campaign, campaign_id)
-    if not campaign:
-        raise HTTPException(status_code=404, detail="Kampania nie istnieje")
-    company = await db.get(Company, campaign.company_id)
-    if not company or company.solana_wallet_address != company_wallet:
-        raise HTTPException(status_code=403, detail="Portfel nie należy do firmy kampanii")
-    program_id, mint, _, _ = _escrow_config()
-    maker = validate_address(company_wallet)
-    offer = _campaign_pda(program_id, maker, campaign_id)
-    vault = _associated_token_address(offer, mint)
-    maker_token = _associated_token_address(maker, mint)
-    instruction = Instruction(
-        program_id,
-        _anchor_discriminator("refund_offer"),
-        [
-            AccountMeta(maker, True, True),
-            AccountMeta(mint, False, False),
-            AccountMeta(maker_token, False, True),
-            AccountMeta(offer, False, True),
-            AccountMeta(vault, False, True),
-            AccountMeta(Pubkey.from_string(TOKEN_PROGRAM_ID), False, False),
-        ],
+    campaign, company, brand = await _campaign_with_brand(db, campaign_id)
+    _require_company_wallet(company, company_wallet)
+    units = token_units(amount)
+    if units <= 0:
+        raise HTTPException(status_code=400, detail="Kwota zasilenia musi być dodatnia")
+    ctx = escrow_context(brand, campaign_id)
+    accounts = {**_common_accounts(ctx), "brand": brand, "brand_token": ctx.brand_token()}
+    instructions = []
+    if await read_account("Campaign", ctx.campaign) is None:
+        instructions.append(
+            ctx.program.build(
+                "create_campaign",
+                {"campaign_id": campaign_id, "params": campaign_chain_params(campaign, min_bond)},
+                accounts,
+            )
+        )
+    instructions.append(ctx.program.build("fund_campaign", {"amount": units}, accounts))
+    return {
+        "instructions": instructions,
+        "campaign_pda": str(ctx.campaign),
+        "vault": str(ctx.vault),
+        "mint": str(ctx.mint),
+        "amount": units,
+    }
+
+
+async def get_escrow_campaign(db: AsyncSession, campaign_id: int) -> dict:
+    _, _, brand = await _campaign_with_brand(db, campaign_id)
+    ctx = escrow_context(brand, campaign_id)
+    account = await read_account("Campaign", ctx.campaign)
+    return {
+        "exists": account is not None,
+        "campaign_pda": str(ctx.campaign),
+        "vault": str(ctx.vault),
+        "campaign": _campaign_view(account) if account else None,
+    }
+
+
+async def _units_from_tracking(
+    db: AsyncSession, campaign_id: int, wallet_address: str, tracking: TrackingClient | None
+) -> list[int]:
+    if tracking is None:
+        raise HTTPException(status_code=400, detail="Podaj units; serwis śledzenia nie jest dostępny")
+    creator = await db.scalar(select(Creator).where(Creator.solana_wallet_address == wallet_address))
+    if not creator:
+        raise HTTPException(status_code=400, detail="Brak twórcy z tym portfelem Solana")
+    link = await db.scalar(
+        select(CampaignRefLink).where(
+            CampaignRefLink.campaign_id == campaign_id, CampaignRefLink.creator_id == creator.id
+        )
+    )
+    if not link:
+        raise HTTPException(status_code=400, detail="Twórca nie ma reflinku w tej kampanii; podaj units")
+    try:
+        totals = await tracking.link_totals(link.code)
+    except TrackingError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if totals is None:
+        raise HTTPException(status_code=400, detail="Serwis śledzenia nie zna reflinku; podaj units")
+    return [0, 0, 0, int(totals.unique)]
+
+
+async def settle_payout(
+    db: AsyncSession,
+    campaign_id: int,
+    wallet_address: str,
+    epoch: int,
+    units: list[int] | None,
+    evidence_hash: str,
+    tracking: TrackingClient | None = None,
+) -> dict:
+    _, _, brand = await _campaign_with_brand(db, campaign_id)
+    creator = validate_address(wallet_address)
+    if units is None:
+        units = await _units_from_tracking(db, campaign_id, wallet_address, tracking)
+    if len(units) != 4 or any(unit < 0 for unit in units):
+        raise HTTPException(status_code=400, detail="units musi mieć 4 nieujemne wartości")
+    ctx = escrow_context(brand, campaign_id)
+    keypair = get_treasury_keypair()
+    payout = ctx.program.payout_pda(ctx.campaign, creator, epoch)
+    instruction = ctx.program.instruction(
+        "settle",
+        {"epoch": epoch, "units": [int(unit) for unit in units], "evidence_hash": bytes.fromhex(evidence_hash)},
+        {
+            **_common_accounts(ctx),
+            "oracle": keypair.pubkey(),
+            "creator": creator,
+            "stake": ctx.program.stake_pda(creator),
+            "position": ctx.program.position_pda(ctx.campaign, creator),
+            "payout": payout,
+        },
+    )
+    signature = await send_instructions(keypair, [instruction])
+    return {"signature": signature, "payout_pda": str(payout), "units": units}
+
+
+def build_release_instruction(
+    ctx: EscrowContext, creator: Pubkey, epoch: int, payout: dict, stake_exists: bool, cranker: Pubkey
+) -> Instruction:
+    with_stake = int(payout.get("restake_bps", 0) or 0) > 0 or stake_exists
+    stake = ctx.program.stake_pda(creator) if with_stake else None
+    return ctx.program.instruction(
+        "release",
+        {},
+        {
+            **_common_accounts(ctx),
+            "cranker": cranker,
+            "creator": creator,
+            "creator_token": ctx.creator_token(creator),
+            "position": ctx.program.position_pda(ctx.campaign, creator),
+            "payout": ctx.program.payout_pda(ctx.campaign, creator, epoch),
+            "rent_payer": payout["rent_payer"],
+            "stake": stake,
+            "stake_token": ctx.stake_token(stake) if stake else None,
+        },
+    )
+
+
+async def release_payout(
+    db: AsyncSession,
+    campaign_id: int,
+    wallet_address: str,
+    epoch: int,
+    oracle_token: str | None = None,
+    signature: str | None = None,
+) -> dict:
+    creator = validate_address(wallet_address)
+    if not oracle_token_valid(oracle_token) and not release_signature_valid(campaign_id, epoch, wallet_address, signature):
+        raise HTTPException(status_code=403, detail="Wymagany token wyroczni lub podpis twórcy wiadomości release")
+    _, _, brand = await _campaign_with_brand(db, campaign_id)
+    ctx = escrow_context(brand, campaign_id)
+    payout_pda = ctx.program.payout_pda(ctx.campaign, creator, epoch)
+    payout = await read_account("Payout", payout_pda)
+    if payout is None:
+        raise HTTPException(status_code=409, detail="Brak rozliczenia na łańcuchu dla tej epoki")
+    if _enum_name(payout["status"]) == "Flagged":
+        raise HTTPException(status_code=409, detail="Rozliczenie jest oflagowane przez markę i czeka na arbitra")
+    now = int(datetime.now(timezone.utc).timestamp())
+    if int(payout["unlock_ts"]) > now:
+        raise HTTPException(status_code=409, detail=f"Rozliczenie odblokuje się o {int(payout['unlock_ts'])} (vesting)")
+    stake_exists = await rpc_account_data(ctx.program.stake_pda(creator)) is not None
+    keypair = get_treasury_keypair()
+    instruction = build_release_instruction(ctx, creator, epoch, payout, stake_exists, keypair.pubkey())
+    signature = await send_instructions(keypair, [instruction])
+    return {"signature": signature, "payout_pda": str(payout_pda)}
+
+
+async def build_flag_instruction(
+    db: AsyncSession, campaign_id: int, company_wallet: str, wallet_address: str, epoch: int, reason: int
+) -> dict:
+    _, company, brand = await _campaign_with_brand(db, campaign_id)
+    _require_company_wallet(company, company_wallet)
+    creator = validate_address(wallet_address)
+    ctx = escrow_context(brand, campaign_id)
+    payout = ctx.program.payout_pda(ctx.campaign, creator, epoch)
+    instruction = ctx.program.build(
+        "flag_payout", {"reason": reason}, {**_common_accounts(ctx), "brand": brand, "payout": payout}
+    )
+    return {"instructions": [instruction], "payout_pda": str(payout)}
+
+
+async def resolve_payout(
+    db: AsyncSession,
+    campaign_id: int,
+    wallet_address: str,
+    epoch: int,
+    approve: bool,
+    slash_amount: Decimal = Decimal(0),
+) -> dict:
+    _, _, brand = await _campaign_with_brand(db, campaign_id)
+    creator = validate_address(wallet_address)
+    ctx = escrow_context(brand, campaign_id)
+    payout_pda = ctx.program.payout_pda(ctx.campaign, creator, epoch)
+    payout = await read_account("Payout", payout_pda)
+    if payout is None:
+        raise HTTPException(status_code=404, detail="Brak rozliczenia na łańcuchu dla tej epoki")
+    keypair = get_treasury_keypair()
+    base = {**_common_accounts(ctx), "arbiter": keypair.pubkey(), "creator": creator}
+    instructions = [
+        ctx.program.instruction(
+            "resolve",
+            {"approve": approve},
+            {
+                **base,
+                "position": ctx.program.position_pda(ctx.campaign, creator),
+                "payout": payout_pda,
+                "rent_payer": payout["rent_payer"],
+            },
+        )
+    ]
+    slash_units = token_units(slash_amount)
+    if slash_units > 0:
+        stake = ctx.program.stake_pda(creator)
+        instructions.append(
+            ctx.program.instruction(
+                "slash", {"amount": slash_units}, {**base, "stake": stake, "stake_token": ctx.stake_token(stake)}
+            )
+        )
+    signature = await send_instructions(keypair, instructions)
+    return {"signature": signature, "payout_pda": str(payout_pda), "slashed": slash_units}
+
+
+async def build_close_instruction(db: AsyncSession, campaign_id: int, company_wallet: str) -> dict:
+    _, company, brand = await _campaign_with_brand(db, campaign_id)
+    _require_company_wallet(company, company_wallet)
+    ctx = escrow_context(brand, campaign_id)
+    instruction = ctx.program.build(
+        "close_campaign", {}, {**_common_accounts(ctx), "brand": brand, "brand_token": ctx.brand_token()}
+    )
+    return {"instructions": [instruction], "campaign_pda": str(ctx.campaign), "vault": str(ctx.vault)}
+
+
+async def build_rollover_instruction(
+    db: AsyncSession, campaign_id: int, company_wallet: str, target_campaign_id: int
+) -> dict:
+    campaign, company, brand = await _campaign_with_brand(db, campaign_id)
+    _require_company_wallet(company, company_wallet)
+    target = await db.get(Campaign, target_campaign_id)
+    if not target or target.company_id != campaign.company_id:
+        raise HTTPException(status_code=404, detail="Kampania docelowa nie istnieje lub należy do innej firmy")
+    ctx = escrow_context(brand, campaign_id)
+    target_campaign = ctx.program.campaign_pda(brand, target_campaign_id)
+    target_vault = associated_token_address(target_campaign, ctx.mint)
+    instruction = ctx.program.build(
+        "rollover",
+        {},
+        {**_common_accounts(ctx), "brand": brand, "target_campaign": target_campaign, "target_vault": target_vault},
     )
     return {
-        "campaign_id": campaign_id,
-        "model": "refund_offer",
-        "offer": str(offer),
-        "vault": str(vault),
-        "instruction": _instruction_payload(instruction),
+        "instructions": [instruction],
+        "campaign_pda": str(ctx.campaign),
+        "target_campaign_pda": str(target_campaign),
+        "target_vault": str(target_vault),
+    }
+
+
+async def list_payouts(db: AsyncSession, campaign_id: int, wallet_address: str) -> list[dict]:
+    _, _, brand = await _campaign_with_brand(db, campaign_id)
+    creator = validate_address(wallet_address)
+    ctx = escrow_context(brand, campaign_id)
+    program = ctx.program
+    filters = [
+        MemcmpOpts(offset=0, bytes=base58.b58encode(program.account_discriminator("Payout")).decode("ascii")),
+        MemcmpOpts(
+            offset=account_field_offset(program, "Payout", "campaign"),
+            bytes=base58.b58encode(bytes(ctx.campaign)).decode("ascii"),
+        ),
+        MemcmpOpts(
+            offset=account_field_offset(program, "Payout", "creator"),
+            bytes=base58.b58encode(bytes(creator)).decode("ascii"),
+        ),
+    ]
+    rows = await rpc_program_accounts(program.program_id, filters)
+    payouts = []
+    for address, data in rows:
+        try:
+            payouts.append(_payout_view(address, program.decode_account("Payout", data)))
+        except (IdlError, struct_error):
+            continue
+    payouts.sort(key=lambda item: item["epoch"])
+    return payouts
+
+
+def build_stake_instruction(
+    wallet_address: str, action: str, amount: Decimal | None = None, bps: int | None = None
+) -> dict:
+    creator = validate_address(wallet_address)
+    program = escrow_program()
+    mint = clipusd_mint()
+    stake = program.stake_pda(creator)
+    stake_token = associated_token_address(stake, mint)
+    accounts = {
+        "creator": creator,
+        "config": program.config_pda(),
+        "mint": mint,
+        "stake": stake,
+        "stake_token": stake_token,
+        "creator_token": associated_token_address(creator, mint),
+        "token_program": _TOKEN_PROGRAM,
+        "associated_token_program": _ASSOCIATED_TOKEN_PROGRAM,
+        "system_program": _SYSTEM_PROGRAM,
+    }
+    if action in ("stake", "request_unstake"):
+        if amount is None:
+            raise HTTPException(status_code=400, detail="Akcja wymaga pola amount")
+        units = token_units(amount)
+        if units <= 0:
+            raise HTTPException(status_code=400, detail="Kwota musi być dodatnia")
+        instruction = program.build(action, {"amount": units}, accounts)
+    elif action == "withdraw_stake":
+        instruction = program.build(action, {}, accounts)
+    elif action == "set_auto_restake":
+        if bps is None:
+            raise HTTPException(status_code=400, detail="Akcja wymaga pola bps")
+        instruction = program.build(action, {"bps": bps}, accounts)
+    else:
+        raise HTTPException(status_code=422, detail="Nieznana akcja stake")
+    return {"instructions": [instruction], "stake_pda": str(stake), "stake_token": str(stake_token)}
+
+
+async def get_stake(wallet_address: str) -> dict:
+    creator = validate_address(wallet_address)
+    program = escrow_program()
+    stake = program.stake_pda(creator)
+    account = await read_account("Stake", stake)
+    if account is None:
+        return {
+            "exists": False,
+            "stake_pda": str(stake),
+            "amount": "0",
+            "pending_unstake": "0",
+            "unstake_at": 0,
+            "auto_restake_bps": 0,
+            "slashed_total": "0",
+        }
+    return {
+        "exists": True,
+        "stake_pda": str(stake),
+        "token": account["token"],
+        "amount": str(account["amount"]),
+        "pending_unstake": str(account["pending_unstake"]),
+        "unstake_at": int(account["unstake_at"]),
+        "auto_restake_bps": int(account["auto_restake_bps"]),
+        "slashed_total": str(account["slashed_total"]),
     }

@@ -1,8 +1,10 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    error::ClipfiError, events::Settled, Campaign, CampaignStatus, Config, CreatorPosition, Payout,
-    PayoutStatus, ANCHOR_DISCRIMINATOR, CAMPAIGN_SEED, CONFIG_SEED, PAYOUT_SEED, POSITION_SEED,
+    error::ClipfiError,
+    events::{RatesApplied, Settled, StandardsApplied},
+    Campaign, CampaignStatus, Config, CreatorPosition, Payout, PayoutStatus, Stake,
+    ANCHOR_DISCRIMINATOR, CAMPAIGN_SEED, CONFIG_SEED, PAYOUT_SEED, POSITION_SEED, STAKE_SEED,
     UNITS_PER_RATE,
 };
 
@@ -24,6 +26,10 @@ pub struct Settle<'info> {
 
     /// CHECK: only names whose position and payout these are
     pub creator: UncheckedAccount<'info>,
+
+    /// CHECK: the stake PDA of the creator, read only when it exists
+    #[account(seeds = [STAKE_SEED, creator.key().as_ref()], bump)]
+    pub stake: UncheckedAccount<'info>,
 
     #[account(
         init_if_needed,
@@ -51,6 +57,14 @@ pub struct Settle<'info> {
     pub system_program: Program<'info, System>,
 }
 
+pub fn read_stake(stake: &AccountInfo) -> Result<Option<Stake>> {
+    if stake.owner != &crate::ID || stake.data_is_empty() {
+        return Ok(None);
+    }
+    let data = stake.try_borrow_data()?;
+    Ok(Some(Stake::try_deserialize(&mut &data[..])?))
+}
+
 impl Settle<'_> {
     pub fn handle(
         &mut self,
@@ -60,6 +74,7 @@ impl Settle<'_> {
         bumps: &SettleBumps,
     ) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
+        require!(!self.config.paused, ClipfiError::Paused);
         let campaign = &mut self.campaign;
         let position = &mut self.position;
 
@@ -72,6 +87,39 @@ impl Settle<'_> {
             epoch > position.last_epoch,
             ClipfiError::EpochAlreadySettled
         );
+
+        if campaign.pending_rates_at != 0 && now >= campaign.pending_rates_at {
+            campaign.rate_per_mille = campaign.pending_rates;
+            campaign.pending_rates = [0; 4];
+            campaign.pending_rates_at = 0;
+            emit!(RatesApplied {
+                campaign: campaign.key(),
+                rates: campaign.rate_per_mille,
+            });
+        }
+        if campaign.pending_standards_at != 0 && now >= campaign.pending_standards_at {
+            campaign.standards_hash = campaign.pending_standards_hash;
+            campaign.standards_version = campaign
+                .standards_version
+                .checked_add(1)
+                .ok_or(ClipfiError::Overflow)?;
+            campaign.pending_standards_hash = [0; 32];
+            campaign.pending_standards_at = 0;
+            emit!(StandardsApplied {
+                campaign: campaign.key(),
+                standards_hash: campaign.standards_hash,
+                standards_version: campaign.standards_version,
+            });
+        }
+
+        let stake = read_stake(&self.stake.to_account_info())?;
+        let bond = stake.as_ref().map(Stake::bonded).unwrap_or(0);
+        let restake_bps = stake
+            .as_ref()
+            .map(|stake| stake.auto_restake_bps)
+            .unwrap_or(0);
+        require!(bond >= campaign.min_bond, ClipfiError::BondTooLow);
+        let bonus_bps = self.config.bonus_bps_for(bond);
 
         let mut gross: u128 = 0;
         for (count, rate) in units.iter().zip(campaign.rate_per_mille) {
@@ -90,10 +138,14 @@ impl Settle<'_> {
         let amount = gross.min(u128::from(creator_room)).min(u128::from(free)) as u64;
         require!(amount > 0, ClipfiError::NothingToSettle);
 
-        let vested = now
-            .checked_add(self.config.vesting_secs)
-            .ok_or(ClipfiError::Overflow)?;
-        let unlock_ts = vested.max(campaign.end_ts);
+        let unlock_ts = if bond > 0 {
+            now.checked_add(self.config.bonded_vesting_secs)
+                .ok_or(ClipfiError::Overflow)?
+        } else {
+            now.checked_add(self.config.vesting_secs)
+                .ok_or(ClipfiError::Overflow)?
+                .max(campaign.end_ts)
+        };
 
         campaign.reserved = campaign
             .reserved
@@ -118,6 +170,9 @@ impl Settle<'_> {
             epoch,
             units,
             amount,
+            bonus_bps,
+            restake_bps,
+            standards_version: campaign.standards_version,
             evidence_hash,
             unlock_ts,
             status: PayoutStatus::Pending,

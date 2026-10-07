@@ -6,6 +6,19 @@ import EditCampaign from './views/Campaign/EditCampaign.vue'
 import CampaignDetails from './views/Campaign/CampaignDetails.vue'
 import Login from './views/Auth/Login.vue'
 import Wallet from './views/Wallet/Wallet.vue'
+import homeIcon from './assets/dropbox/Overview/Assets/Home-4--Streamline-Core-Remix.png'
+import gamesIcon from './assets/dropbox/Overview/Assets/Controller-1--Streamline-Core-Remix.png'
+import overviewIcon from './assets/dropbox/Overview/Assets/Wave-Signal-Square--Streamline-Core-Remix.png'
+import creatorsIcon from './assets/dropbox/Overview/Assets/User-Multiple-Group--Streamline-Core-Remix.png'
+import submissionsIcon from './assets/dropbox/Overview/Assets/Upload-File--Streamline-Core-Remix.png'
+import requestsIcon from './assets/dropbox/Overview/Assets/Empty-Clipboard--Streamline-Core-Remix.png'
+import keysIcon from './assets/dropbox/Overview/Assets/Key--Streamline-Solar (1).png'
+import budgetIcon from './assets/dropbox/Overview/Assets/Coins-Stack--Streamline-Core-Remix.png'
+import detailsIcon from './assets/dropbox/Overview/Assets/Magnifying-Glass-Circle--Streamline-Core-Remix.png'
+import notificationsIcon from './assets/dropbox/Overview/Assets/Ringing-Bell-Notification--Streamline-Core-Remix.png'
+import announcementIcon from './assets/dropbox/Overview/Assets/Announcement-Megaphone--Streamline-Core-Remix.png'
+import editIcon from './assets/dropbox/Details/assets/New-File--Streamline-Core-Remix.png'
+import createIcon from './assets/dropbox/Overview/Assets/Add-Circle--Streamline-Core-Remix.png'
 
 const session = ref(JSON.parse(localStorage.getItem('waggi_session') || 'null'))
 const currentTab = ref('list')
@@ -67,6 +80,11 @@ const handleDetailsEdit = (id) => {
   currentTab.value = 'edit'
 }
 
+const openEditor = () => {
+  if (!editCampaignId.value) editCampaignId.value = detailsCampaignId.value || campaigns.value[0]?.id || null
+  currentTab.value = 'edit'
+}
+
 const handleLoggedIn = (data) => {
   session.value = data
   currentTab.value = 'list'
@@ -91,11 +109,11 @@ onMounted(fetchCampaigns)
         <div class="nav-section">
           <span class="nav-label">GENERAL</span>
           <button @click="currentTab = 'list'">
-            <span class="nav-icon">⌂</span>
+            <img class="nav-icon" :src="homeIcon" alt="" />
             <span>Home</span>
           </button>
           <button class="sidebar-game-button" @click="currentTab = 'list'">
-            <span class="nav-icon">◫</span>
+            <img class="nav-icon" :src="gamesIcon" alt="" />
             <span>Games</span>
           </button>
           <select v-model="selectedCampaignId" class="sidebar-game-select" aria-label="Select campaign" @change="handleCampaignSelection">
@@ -109,21 +127,21 @@ onMounted(fetchCampaigns)
         <div class="nav-section">
           <span class="nav-label">CAMPAIGNS</span>
           <button :class="{ active: currentTab === 'list' }" @click="currentTab = 'list'">
-            <span class="nav-icon">▧</span>
+            <img class="nav-icon" :src="overviewIcon" alt="" />
             <span>Overview</span>
             <span class="nav-chevron">›</span>
           </button>
-          <button :class="{ active: currentTab === 'details' && detailsSection === 'creators' }" @click="openCampaignSection('creators')"><span class="nav-icon">♧</span><span>Creators</span><span class="nav-chevron">›</span></button>
-          <button :class="{ active: currentTab === 'details' && detailsSection === 'submissions' }" @click="openCampaignSection('submissions')"><span class="nav-icon">⇧</span><span>Submissions</span><span class="nav-chevron">›</span></button>
-          <button :class="{ active: currentTab === 'details' && detailsSection === 'requests' }" @click="openCampaignSection('requests')"><span class="nav-icon">□</span><span>Key requests</span><span class="nav-chevron">›</span></button>
-          <button :class="{ active: currentTab === 'details' && detailsSection === 'keys' }" @click="openCampaignSection('keys')"><span class="nav-icon">⚿</span><span>Game keys</span><span class="nav-chevron">›</span></button>
-          <button @click="currentTab = 'list'"><span class="nav-icon">▤</span><span>Budget</span><span class="nav-chevron">›</span></button>
-          <button :class="{ active: currentTab === 'details' && detailsSection === 'details' }" @click="openCampaignSection('details')"><span class="nav-icon">⊙</span><span>Details</span><span class="nav-chevron">⌄</span></button>
-          <button @click="currentTab = 'list'"><span class="nav-icon">♧</span><span>Notifications</span><span class="nav-chevron">›</span></button>
-          <button :class="{ active: currentTab === 'wallet' }" @click="currentTab = 'wallet'"><span class="nav-icon">◈</span><span>Wallet</span><span class="nav-chevron">›</span></button>
-          <button @click="currentTab = 'list'"><span class="nav-icon">※</span><span>Announcement</span><span class="nav-chevron">›</span></button>
-          <button :class="{ active: currentTab === 'edit' }" @click="currentTab = 'edit'">
-            <span class="nav-icon">✎</span>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'creators' }" @click="openCampaignSection('creators')"><img class="nav-icon" :src="creatorsIcon" alt="" /><span>Creators</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'submissions' }" @click="openCampaignSection('submissions')"><img class="nav-icon" :src="submissionsIcon" alt="" /><span>Submissions</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'requests' }" @click="openCampaignSection('requests')"><img class="nav-icon" :src="requestsIcon" alt="" /><span>Key requests</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'keys' }" @click="openCampaignSection('keys')"><img class="nav-icon" :src="keysIcon" alt="" /><span>Game keys</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'escrow' }" @click="openCampaignSection('escrow')"><img class="nav-icon" :src="budgetIcon" alt="" /><span>Budget</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'details' && detailsSection === 'details' }" @click="openCampaignSection('details')"><img class="nav-icon" :src="detailsIcon" alt="" /><span>Details</span><span class="nav-chevron">⌄</span></button>
+          <button @click="currentTab = 'list'"><img class="nav-icon" :src="notificationsIcon" alt="" /><span>Notifications</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'wallet' }" @click="currentTab = 'wallet'"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18v3" /><path d="M3 7.5V17a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H5.5A2.5 2.5 0 0 1 3 7.5Z" /><circle cx="16.5" cy="14" r="1" /></svg><span>Wallet</span><span class="nav-chevron">›</span></button>
+          <button @click="currentTab = 'list'"><img class="nav-icon" :src="announcementIcon" alt="" /><span>Announcement</span><span class="nav-chevron">›</span></button>
+          <button :class="{ active: currentTab === 'edit' }" @click="openEditor">
+            <img class="nav-icon" :src="editIcon" alt="" />
             <span>Edit</span>
           </button>
         </div>
@@ -131,7 +149,7 @@ onMounted(fetchCampaigns)
         <div class="nav-section">
           <span class="nav-label">SET UP</span>
           <button :class="{ active: currentTab === 'create' }" @click="currentTab = 'create'">
-            <span class="nav-icon">＋</span>
+            <img class="nav-icon" :src="createIcon" alt="" />
             <span>New Campaign</span>
           </button>
         </div>
@@ -141,7 +159,7 @@ onMounted(fetchCampaigns)
     <div class="workspace-panel">
       <header class="top-bar">
         <div class="user-pill">
-          <span class="user-avatar">◉</span>
+          <span class="user-avatar"></span>
           <span>{{ session.account_type === 'company' ? session.user.name : (session.user.full_name || session.user.username) }}</span>
         </div>
         <button class="logout-button" @click="logout">Log out</button>

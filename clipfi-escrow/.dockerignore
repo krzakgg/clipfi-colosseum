@@ -1,0 +1,9 @@
+target
+node_modules
+.keys
+.anchor
+app/__pycache__
+app/**/__pycache__
+app/.pytest_cache
+programs
+migrations

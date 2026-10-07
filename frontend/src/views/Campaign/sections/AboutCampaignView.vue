@@ -1,5 +1,5 @@
 <script setup>
-import { computed, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import instagramIcon from '../../../assets/dropbox/Details/assets/icons8-instagram-96.png'
 import twitchIcon from '../../../assets/dropbox/Overview/Assets/icons8-twitch-96.png'
 import tiktokIcon from '../../../assets/dropbox/Overview/Assets/icons8-tiktok-96.png'
@@ -20,6 +20,7 @@ const props = defineProps({
 const campaign = toRef(props, 'campaign')
 const galleryImages = toRef(props, 'galleryImages')
 const displayImage = toRef(props, 'displayImage')
+const artworkFailed = ref(false)
 const formatDate = toRef(props, 'formatDate')
 const selectedImage = toRef(props, 'selectedImage')
 
@@ -83,8 +84,8 @@ const orderedSocialLinks = computed(() => Object.entries(campaign.value.social_m
     <aside class="about-sidebar" id="campaign-details">
       <article class="campaign-sidebar-card">
         <!-- Obrazek nagłówka gry -->
-        <div class="campaign-sidebar-image" :class="{ 'empty-image': !displayImage }">
-          <img v-if="displayImage" :src="displayImage" :alt="`Campaign artwork for ${campaign.title}`" />
+        <div class="campaign-sidebar-image" :class="{ 'empty-image': !displayImage || artworkFailed }">
+          <img v-if="displayImage && !artworkFailed" :src="displayImage" :alt="`Campaign artwork for ${campaign.title}`" @error="artworkFailed = true" />
           <div v-else class="image-placeholder">No campaign artwork available.</div>
         </div>
 

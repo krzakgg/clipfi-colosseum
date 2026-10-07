@@ -1,6 +1,7 @@
 services:
   anchor:
     image: solanafoundation/anchor:v1.0.2
+    profiles: ["tools"]
     working_dir: /work
     volumes:
       - ./:/work
@@ -8,7 +9,82 @@ services:
       - cargo_registry:/root/.cargo/registry
       - solana_config:/root/.config/solana
 
+  validator:
+    image: solanafoundation/anchor:v1.0.2
+    profiles: ["localnet"]
+    command: solana-test-validator --rpc-port 8899 --ledger /ledger --quiet
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "8899:8899"
+      - "8900:8900"
+    volumes:
+      - ledger:/ledger
+    healthcheck:
+      test: ["CMD", "solana", "cluster-version", "-u", "http://127.0.0.1:8899"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  tools:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    profiles: ["tools"]
+    working_dir: /work
+    environment:
+      CLIPFI_RPC_SCOPE: internal
+      CLIPFI_BACKEND_URL: http://host.docker.internal:8000
+      WAGGI_DIR: /waggi
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./:/work
+      - ${WAGGI_DIR:-../waggi}:/waggi
+
+  indexer:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    command: python -m app.indexer
+    env_file:
+      - path: .keys/compose.env
+        required: false
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/indexer.db
+    ports:
+      - "8001:8001"
+    volumes:
+      - app_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  partner:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    command: python -m app.partner
+    env_file:
+      - path: .keys/compose.env
+        required: false
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/partner.db
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - app_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
 volumes:
   target:
   cargo_registry:
   solana_config:
+  ledger:
+  app_data:

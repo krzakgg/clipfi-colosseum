@@ -211,7 +211,7 @@ onMounted(fetchApplications)
           <div v-if="app.feedback" class="feedback-info"><strong>Company feedback:</strong> {{ app.feedback }}</div>
           <div v-if="app.status === 'pending'" class="card-actions">
             <input v-model="feedbackTexts[app.id]" type="text" placeholder="Optional feedback or reason..." class="feedback-input" />
-            <div class="btn-group"><button @click="updateStatus(app.id, 'accepted')" class="btn btn-accept">✅ Accept</button><button @click="updateStatus(app.id, 'rejected')" class="btn btn-reject">❌ Reject</button></div>
+            <div class="btn-group"><button @click="updateStatus(app.id, 'accepted')" class="btn btn-accept">Accept</button><button @click="updateStatus(app.id, 'rejected')" class="btn btn-reject">Reject</button></div>
           </div>
           <div v-if="app.status === 'accepted'" class="ref-link-actions">
             <strong>Creator referral link</strong>
@@ -259,10 +259,10 @@ onMounted(fetchApplications)
           />
           <div class="btn-group">
             <button @click="updateStatus(app.id, 'accepted')" class="btn btn-accept">
-              ✅ Accept
+              Accept
             </button>
             <button @click="updateStatus(app.id, 'rejected')" class="btn btn-reject">
-              ❌ Reject
+              Reject
             </button>
           </div>
         </div>

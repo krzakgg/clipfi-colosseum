@@ -1,6 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import aboutTabIcon from '../../assets/dropbox/Details/assets/Information-Circle--Streamline-Core-Remix.png'
+import detailsTabIcon from '../../assets/dropbox/Details/assets/Magnifying-Glass-Circle--Streamline-Core-Remix (1).png'
+import guidelinesTabIcon from '../../assets/dropbox/Details/assets/Manual-Book--Streamline-Core-Remix.png'
+import resourcesTabIcon from '../../assets/dropbox/Details/assets/New-Folder--Streamline-Core-Remix.png'
+import submissionsTabIcon from '../../assets/dropbox/Details/assets/Upload-File--Streamline-Core-Remix.png'
+import escrowTabIcon from '../../assets/dropbox/Overview/Assets/Coins-Stack--Streamline-Core-Remix.png'
 import AboutCampaignView from './sections/AboutCampaignView.vue'
+import EscrowView from './sections/EscrowView.vue'
 import CampaignDetailsView from './sections/CampaignDetailsView.vue'
 import CreatorsView from './sections/CreatorsView.vue'
 import GuidelinesView from './sections/GuidelinesView.vue'
@@ -87,13 +94,13 @@ watch(() => props.initialSection, section => { activeSection.value = section }, 
 
 <template>
   <div class="details-container">
-    <div class="details-toolbar"><button class="btn-back" @click="emit('back')">← Back to campaigns</button><button v-if="isCompanyOwner" class="btn-edit" @click="emit('edit-campaign', campaign.id)">✏️ Edit campaign</button></div>
+    <div class="details-toolbar"><button class="btn-back" @click="emit('back')">← Back to campaigns</button><button v-if="isCompanyOwner" class="btn-edit" @click="emit('edit-campaign', campaign.id)">Edit campaign</button></div>
     <div v-if="loading" class="state-msg">Loading campaign details...</div>
     <div v-else-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
     <template v-else-if="campaign">
       <section class="campaign-heading">
         <div class="campaign-heading-copy">
-          <span class="eyebrow">Kampania #{{ campaign.id }}</span>
+          <span class="eyebrow">Campaign #{{ campaign.id }}</span>
           <div class="campaign-title-row">
             <h1>{{ campaign.title }}</h1>
             <span :class="['status-badge', `status-${(campaign.status || 'DRAFT').toLowerCase()}`]">{{ campaign.status || 'DRAFT' }}</span>
@@ -102,15 +109,16 @@ watch(() => props.initialSection, section => { activeSection.value = section }, 
         </div>
         <div class="campaign-heading-meta">
           <span>{{ formatDate(campaign.start_date) }} - {{ formatDate(campaign.end_date) }}</span>
-          <span :class="['badge', campaign.is_private ? 'badge-private' : 'badge-public']">{{ campaign.is_private ? 'Prywatna' : 'Publiczna' }}</span>
+          <span :class="['badge', campaign.is_private ? 'badge-private' : 'badge-public']">{{ campaign.is_private ? 'Private' : 'Public' }}</span>
         </div>
       </section>
-      <nav v-if="!['creators', 'submissions', 'requests', 'keys'].includes(activeSection)" class="campaign-tabs" aria-label="Sekcje kampanii">
-        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'about' }" @click="activeSection = 'about'">ⓘ <span>About</span></button>
-        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'details' }" @click="activeSection = 'details'">⌾ <span>Details</span></button>
-        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'guidelines' }" @click="activeSection = 'guidelines'">▣ <span>Guidelines</span></button>
-        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'resources' }" @click="activeSection = 'resources'">□ <span>Press Kit</span></button>
-        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'submissions' }" @click="activeSection = 'submissions'">⇧ <span>Submissions</span></button>
+      <nav v-if="!['creators', 'submissions', 'requests', 'keys'].includes(activeSection)" class="campaign-tabs" aria-label="Campaign sections">
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'about' }" @click="activeSection = 'about'"><img class="tab-icon" :src="aboutTabIcon" alt="" /><span>About</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'details' }" @click="activeSection = 'details'"><img class="tab-icon" :src="detailsTabIcon" alt="" /><span>Details</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'guidelines' }" @click="activeSection = 'guidelines'"><img class="tab-icon" :src="guidelinesTabIcon" alt="" /><span>Guidelines</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'resources' }" @click="activeSection = 'resources'"><img class="tab-icon" :src="resourcesTabIcon" alt="" /><span>Press Kit</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'submissions' }" @click="activeSection = 'submissions'"><img class="tab-icon" :src="submissionsTabIcon" alt="" /><span>Submissions</span></button>
+        <button type="button" class="campaign-tab" :class="{ active: activeSection === 'escrow' }" @click="activeSection = 'escrow'"><img class="tab-icon" :src="escrowTabIcon" alt="" /><span>Escrow</span></button>
       </nav>
       <AboutCampaignView v-if="activeSection === 'about'" :campaign="campaign" :gallery-images="galleryImages" :display-image="displayImage" :selected-image="selectedImage" :format-date="formatDate" @select-image="selectedImage = $event" />
       <CampaignDetailsView v-else-if="activeSection === 'details'" :campaign="campaign" :format-date="formatDate" />
@@ -120,6 +128,7 @@ watch(() => props.initialSection, section => { activeSection.value = section }, 
       <SubmissionsView v-else-if="activeSection === 'submissions'" :campaign="campaign" :session="session" :can-apply-to-campaign="canApplyToCampaign" :can-submit-campaign-video="canSubmitCampaignVideo" :creator-application-loading="creatorApplicationLoading" :creator-application-status="creatorApplicationStatus" :is-company-owner="isCompanyOwner" />
       <KeyRequestsView v-else-if="activeSection === 'requests'" :campaign-id="campaignId" :session="session" :is-company-owner="isCompanyOwner" />
       <GameKeysView v-else-if="activeSection === 'keys'" :campaign-id="campaignId" :session="session" :is-company-owner="isCompanyOwner" />
+      <EscrowView v-else-if="activeSection === 'escrow'" :campaign-id="campaignId" :campaign="campaign" :session="session" :is-company-owner="isCompanyOwner" />
     </template>
   </div>
 </template>

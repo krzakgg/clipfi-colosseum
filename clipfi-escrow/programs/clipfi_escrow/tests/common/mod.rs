@@ -5,8 +5,13 @@ use {
         prelude::Pubkey, solana_program::instruction::Instruction, AccountDeserialize,
         InstructionData, ToAccountMetas,
     },
-    anchor_spl::associated_token::get_associated_token_address,
-    clipfi_escrow::{CampaignParams, CAMPAIGN_SEED, CONFIG_SEED, PAYOUT_SEED, POSITION_SEED},
+    anchor_spl::associated_token::{
+        get_associated_token_address, get_associated_token_address_with_program_id,
+    },
+    clipfi_escrow::{
+        BonusTier, CampaignParams, ConfigParams, CAMPAIGN_SEED, CONFIG_SEED, PAYOUT_SEED,
+        POSITION_SEED, STAKE_SEED,
+    },
     litesvm::{types::TransactionResult, LiteSVM},
     solana_account::Account,
     solana_clock::Clock,
@@ -26,6 +31,11 @@ pub const CLIP_USD: u64 = 1_000_000;
 pub const NOW: i64 = 1_790_000_000;
 pub const DAY: i64 = 86_400;
 pub const VESTING: i64 = 14 * DAY;
+pub const BONDED_VESTING: i64 = 7 * DAY;
+pub const UNSTAKE_COOLDOWN: i64 = 21 * DAY;
+pub const NOTICE: i64 = 3600;
+pub const TIER_BOND: u64 = 100 * CLIP_USD;
+pub const TIER_BPS: u16 = 300;
 
 const MINT_LEN: usize = 82;
 const TOKEN_ACCOUNT_LEN: usize = 165;
@@ -71,17 +81,15 @@ impl World {
     }
 
     pub fn with_config() -> Self {
-        let mut world = Self::new();
-        let ix = init_config_ix(
-            &world.admin.pubkey(),
-            &world.mint,
-            world.oracle.pubkey(),
-            world.arbiter.pubkey(),
-            VESTING,
-            &world.program_data,
-        );
-        send(&mut world.svm, ix, &[&world.admin]).unwrap();
-        world
+        let world = Self::new();
+        let params = default_config_params(world.oracle.pubkey(), world.arbiter.pubkey());
+        world.with_config_params(params)
+    }
+
+    pub fn with_config_params(mut self, params: ConfigParams) -> Self {
+        let ix = init_config_ix(&self.admin.pubkey(), &self.mint, &self.program_data, params);
+        send(&mut self.svm, ix, &[&self.admin]).unwrap();
+        self
     }
 
     pub fn with_campaign(campaign_id: u64) -> Self {
@@ -107,10 +115,30 @@ impl World {
     }
 }
 
+pub fn default_config_params(oracle: Pubkey, arbiter: Pubkey) -> ConfigParams {
+    ConfigParams {
+        oracle,
+        arbiter,
+        vesting_secs: VESTING,
+        bonded_vesting_secs: BONDED_VESTING,
+        unstake_cooldown_secs: UNSTAKE_COOLDOWN,
+        notice_secs: NOTICE,
+        bonus_tiers: [
+            BonusTier {
+                min_bond: TIER_BOND,
+                bonus_bps: TIER_BPS,
+            },
+            BonusTier::default(),
+            BonusTier::default(),
+        ],
+    }
+}
+
 pub fn default_params() -> CampaignParams {
     CampaignParams {
         rate_per_mille: [2 * CLIP_USD, 5 * CLIP_USD, CLIP_USD / 10, 50 * CLIP_USD],
         max_per_creator: 40 * CLIP_USD,
+        min_bond: 0,
         start_ts: NOW,
         end_ts: NOW + 30 * DAY,
         standards_hash: [7; 32],
@@ -146,7 +174,7 @@ pub fn fetch<T: AccountDeserialize>(svm: &LiteSVM, address: &Pubkey) -> T {
     T::try_deserialize(&mut account.data.as_slice()).unwrap()
 }
 
-fn put(svm: &mut LiteSVM, address: Pubkey, data: Vec<u8>, owner: Pubkey) {
+pub fn put_account(svm: &mut LiteSVM, address: Pubkey, data: Vec<u8>, owner: Pubkey) {
     let lamports = svm.minimum_balance_for_rent_exemption(data.len());
     svm.set_account(
         address,
@@ -168,7 +196,7 @@ pub fn create_mint(svm: &mut LiteSVM, authority: &Pubkey) -> Pubkey {
     data[4..36].copy_from_slice(authority.as_ref());
     data[44] = DECIMALS;
     data[45] = 1;
-    put(svm, mint, data, TOKEN_PROGRAM);
+    put_account(svm, mint, data, TOKEN_PROGRAM);
     mint
 }
 
@@ -184,7 +212,7 @@ pub fn create_fee_mint(svm: &mut LiteSVM, authority: &Pubkey) -> Pubkey {
     data[165] = 1; // AccountType::Mint
     data[166..168].copy_from_slice(&1u16.to_le_bytes()); // ExtensionType::TransferFeeConfig
     data[168..170].copy_from_slice(&108u16.to_le_bytes()); // its length
-    put(svm, mint, data, TOKEN_2022_PROGRAM);
+    put_account(svm, mint, data, TOKEN_2022_PROGRAM);
     mint
 }
 
@@ -195,7 +223,7 @@ pub fn give_tokens(svm: &mut LiteSVM, owner: &Pubkey, mint: &Pubkey, amount: u64
     data[32..64].copy_from_slice(owner.as_ref());
     data[64..72].copy_from_slice(&amount.to_le_bytes());
     data[108] = 1;
-    put(svm, address, data, TOKEN_PROGRAM);
+    put_account(svm, address, data, TOKEN_PROGRAM);
     address
 }
 
@@ -217,6 +245,10 @@ pub fn config_pda() -> Pubkey {
     Pubkey::find_program_address(&[CONFIG_SEED], &clipfi_escrow::id()).0
 }
 
+pub fn bonus_vault_pda(mint: &Pubkey) -> Pubkey {
+    get_associated_token_address(&config_pda(), mint)
+}
+
 pub fn campaign_pda(brand: &Pubkey, campaign_id: u64) -> Pubkey {
     Pubkey::find_program_address(
         &[CAMPAIGN_SEED, brand.as_ref(), &campaign_id.to_le_bytes()],
@@ -229,28 +261,46 @@ pub fn vault_of(campaign: &Pubkey, mint: &Pubkey) -> Pubkey {
     get_associated_token_address(campaign, mint)
 }
 
+pub fn stake_pda(creator: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[STAKE_SEED, creator.as_ref()], &clipfi_escrow::id()).0
+}
+
+pub fn stake_token_of(creator: &Pubkey, mint: &Pubkey) -> Pubkey {
+    get_associated_token_address(&stake_pda(creator), mint)
+}
+
 pub fn init_config_ix(
     admin: &Pubkey,
     mint: &Pubkey,
-    oracle: Pubkey,
-    arbiter: Pubkey,
-    vesting_secs: i64,
     program_data: &Pubkey,
+    params: ConfigParams,
+) -> Instruction {
+    init_config_ix_with(admin, mint, program_data, params, TOKEN_PROGRAM)
+}
+
+pub fn init_config_ix_with(
+    admin: &Pubkey,
+    mint: &Pubkey,
+    program_data: &Pubkey,
+    params: ConfigParams,
+    token_program: Pubkey,
 ) -> Instruction {
     Instruction::new_with_bytes(
         clipfi_escrow::id(),
-        &clipfi_escrow::instruction::InitConfig {
-            oracle,
-            arbiter,
-            vesting_secs,
-        }
-        .data(),
+        &clipfi_escrow::instruction::InitConfig { params }.data(),
         clipfi_escrow::accounts::InitConfig {
             admin: *admin,
             mint: *mint,
             config: config_pda(),
+            bonus_vault: get_associated_token_address_with_program_id(
+                &config_pda(),
+                mint,
+                &token_program,
+            ),
             program: clipfi_escrow::id(),
             program_data: *program_data,
+            associated_token_program: ATA_PROGRAM,
+            token_program,
             system_program: SYSTEM_PROGRAM,
         }
         .to_account_metas(None),
@@ -390,6 +440,7 @@ pub fn settle_ix(
             config: config_pda(),
             campaign: *campaign,
             creator: *creator,
+            stake: stake_pda(creator),
             position: position_pda(campaign, creator),
             payout: payout_pda(campaign, creator, epoch),
             system_program: SYSTEM_PROGRAM,
@@ -434,6 +485,42 @@ pub fn resolve_ix(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+fn release_with(
+    cranker: &Pubkey,
+    campaign: &Pubkey,
+    mint: &Pubkey,
+    creator: &Pubkey,
+    payout: &Pubkey,
+    rent_payer: &Pubkey,
+    stake: Option<Pubkey>,
+    stake_token: Option<Pubkey>,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::Release {}.data(),
+        clipfi_escrow::accounts::Release {
+            cranker: *cranker,
+            config: config_pda(),
+            campaign: *campaign,
+            mint: *mint,
+            vault: vault_of(campaign, mint),
+            bonus_vault: bonus_vault_pda(mint),
+            creator: *creator,
+            creator_token: get_associated_token_address(creator, mint),
+            position: position_pda(campaign, creator),
+            payout: *payout,
+            rent_payer: *rent_payer,
+            stake,
+            stake_token,
+            associated_token_program: ATA_PROGRAM,
+            token_program: TOKEN_PROGRAM,
+            system_program: SYSTEM_PROGRAM,
+        }
+        .to_account_metas(None),
+    )
+}
+
 pub fn release_ix(
     cranker: &Pubkey,
     campaign: &Pubkey,
@@ -442,24 +529,28 @@ pub fn release_ix(
     payout: &Pubkey,
     rent_payer: &Pubkey,
 ) -> Instruction {
-    Instruction::new_with_bytes(
-        clipfi_escrow::id(),
-        &clipfi_escrow::instruction::Release {}.data(),
-        clipfi_escrow::accounts::Release {
-            cranker: *cranker,
-            campaign: *campaign,
-            mint: *mint,
-            vault: vault_of(campaign, mint),
-            creator: *creator,
-            creator_token: get_associated_token_address(creator, mint),
-            position: position_pda(campaign, creator),
-            payout: *payout,
-            rent_payer: *rent_payer,
-            associated_token_program: ATA_PROGRAM,
-            token_program: TOKEN_PROGRAM,
-            system_program: SYSTEM_PROGRAM,
-        }
-        .to_account_metas(None),
+    release_with(
+        cranker, campaign, mint, creator, payout, rent_payer, None, None,
+    )
+}
+
+pub fn release_bonded_ix(
+    cranker: &Pubkey,
+    campaign: &Pubkey,
+    mint: &Pubkey,
+    creator: &Pubkey,
+    payout: &Pubkey,
+    rent_payer: &Pubkey,
+) -> Instruction {
+    release_with(
+        cranker,
+        campaign,
+        mint,
+        creator,
+        payout,
+        rent_payer,
+        Some(stake_pda(creator)),
+        Some(stake_token_of(creator, mint)),
     )
 }
 
@@ -479,6 +570,190 @@ pub fn close_campaign_ix(
             mint: *mint,
             vault: vault_of(campaign, mint),
             brand_token: *brand_token,
+            token_program: TOKEN_PROGRAM,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn stake_ix(creator: &Pubkey, mint: &Pubkey, amount: u64) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::Stake { amount }.data(),
+        clipfi_escrow::accounts::StakeTokens {
+            creator: *creator,
+            config: config_pda(),
+            mint: *mint,
+            stake: stake_pda(creator),
+            stake_token: stake_token_of(creator, mint),
+            creator_token: get_associated_token_address(creator, mint),
+            associated_token_program: ATA_PROGRAM,
+            token_program: TOKEN_PROGRAM,
+            system_program: SYSTEM_PROGRAM,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn request_unstake_ix(creator: &Pubkey, amount: u64) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::RequestUnstake { amount }.data(),
+        clipfi_escrow::accounts::RequestUnstake {
+            creator: *creator,
+            config: config_pda(),
+            stake: stake_pda(creator),
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn withdraw_stake_ix(creator: &Pubkey, mint: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::WithdrawStake {}.data(),
+        clipfi_escrow::accounts::WithdrawStake {
+            creator: *creator,
+            config: config_pda(),
+            mint: *mint,
+            stake: stake_pda(creator),
+            stake_token: stake_token_of(creator, mint),
+            creator_token: get_associated_token_address(creator, mint),
+            token_program: TOKEN_PROGRAM,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn set_auto_restake_ix(creator: &Pubkey, bps: u16) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::SetAutoRestake { bps }.data(),
+        clipfi_escrow::accounts::SetAutoRestake {
+            creator: *creator,
+            stake: stake_pda(creator),
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn fund_bonus_pool_ix(
+    funder: &Pubkey,
+    mint: &Pubkey,
+    funder_token: &Pubkey,
+    amount: u64,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::FundBonusPool { amount }.data(),
+        clipfi_escrow::accounts::FundBonusPool {
+            funder: *funder,
+            config: config_pda(),
+            mint: *mint,
+            bonus_vault: bonus_vault_pda(mint),
+            funder_token: *funder_token,
+            token_program: TOKEN_PROGRAM,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn slash_ix(
+    arbiter: &Pubkey,
+    campaign: &Pubkey,
+    mint: &Pubkey,
+    creator: &Pubkey,
+    amount: u64,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::Slash { amount }.data(),
+        clipfi_escrow::accounts::Slash {
+            arbiter: *arbiter,
+            config: config_pda(),
+            campaign: *campaign,
+            mint: *mint,
+            vault: vault_of(campaign, mint),
+            creator: *creator,
+            stake: stake_pda(creator),
+            stake_token: stake_token_of(creator, mint),
+            token_program: TOKEN_PROGRAM,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn propose_rates_ix(brand: &Pubkey, campaign: &Pubkey, rates: [u64; 4]) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::ProposeRates { rates }.data(),
+        clipfi_escrow::accounts::ProposeRates {
+            brand: *brand,
+            config: config_pda(),
+            campaign: *campaign,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn propose_standards_ix(
+    brand: &Pubkey,
+    campaign: &Pubkey,
+    standards_hash: [u8; 32],
+) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::ProposeStandards { standards_hash }.data(),
+        clipfi_escrow::accounts::ProposeStandards {
+            brand: *brand,
+            config: config_pda(),
+            campaign: *campaign,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn update_config_ix(admin: &Pubkey, params: ConfigParams) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::UpdateConfig { params }.data(),
+        clipfi_escrow::accounts::UpdateConfig {
+            admin: *admin,
+            config: config_pda(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn set_paused_ix(admin: &Pubkey, paused: bool) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::SetPaused { paused }.data(),
+        clipfi_escrow::accounts::SetPaused {
+            admin: *admin,
+            config: config_pda(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn rollover_ix(
+    brand: &Pubkey,
+    campaign: &Pubkey,
+    target_campaign: &Pubkey,
+    mint: &Pubkey,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        clipfi_escrow::id(),
+        &clipfi_escrow::instruction::Rollover {}.data(),
+        clipfi_escrow::accounts::Rollover {
+            brand: *brand,
+            config: config_pda(),
+            campaign: *campaign,
+            vault: vault_of(campaign, mint),
+            target_campaign: *target_campaign,
+            target_vault: vault_of(target_campaign, mint),
+            mint: *mint,
             token_program: TOKEN_PROGRAM,
         }
         .to_account_metas(None),

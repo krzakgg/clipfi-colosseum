@@ -42,4 +42,24 @@ pub enum ClipfiError {
     UnsupportedMint,
     #[msg("only the program upgrade authority may initialize the config")]
     Unauthorized,
+    #[msg("bonus or restake share must not exceed the allowed basis points")]
+    InvalidBps,
+    #[msg("bonus tiers must have increasing minimum bonds")]
+    InvalidTiers,
+    #[msg("creator bond is below the campaign minimum")]
+    BondTooLow,
+    #[msg("bond is smaller than the requested amount")]
+    InsufficientStake,
+    #[msg("unstake cooldown has not passed")]
+    UnstakeNotReady,
+    #[msg("nothing is pending withdrawal")]
+    NothingToWithdraw,
+    #[msg("rates have no pending change")]
+    NothingPending,
+    #[msg("rollover target must be an active campaign of the same brand with the same mint")]
+    InvalidRolloverTarget,
+    #[msg("program is paused")]
+    Paused,
+    #[msg("this payout auto-restakes, pass the stake accounts")]
+    StakeRequired,
 }

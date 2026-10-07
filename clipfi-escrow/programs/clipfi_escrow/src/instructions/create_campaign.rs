@@ -13,6 +13,7 @@ use crate::{
 pub struct CampaignParams {
     pub rate_per_mille: [u64; 4],
     pub max_per_creator: u64,
+    pub min_bond: u64,
     pub start_ts: i64,
     pub end_ts: i64,
     pub standards_hash: [u8; 32],
@@ -60,6 +61,7 @@ impl CreateCampaign<'_> {
         params: CampaignParams,
         bumps: &CreateCampaignBumps,
     ) -> Result<()> {
+        require!(!self.config.paused, ClipfiError::Paused);
         let now = Clock::get()?.unix_timestamp;
         require!(
             params.end_ts > params.start_ts && params.end_ts > now,
@@ -80,10 +82,16 @@ impl CreateCampaign<'_> {
             reserved: 0,
             paid_total: 0,
             rate_per_mille: params.rate_per_mille,
+            pending_rates: [0; 4],
+            pending_rates_at: 0,
             max_per_creator: params.max_per_creator,
+            min_bond: params.min_bond,
             start_ts: params.start_ts,
             end_ts: params.end_ts,
             standards_hash: params.standards_hash,
+            standards_version: 1,
+            pending_standards_hash: [0; 32],
+            pending_standards_at: 0,
             status: CampaignStatus::Active,
             bump: bumps.campaign,
         });

@@ -1,0 +1,3 @@
+solders>=0.21
+httpx>=0.27
+base58>=2.1
