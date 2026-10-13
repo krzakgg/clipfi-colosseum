@@ -1,2 +1,3 @@
 -r backend/requirements.txt
 -e tracking-service[test]
+-e auth-service[test]

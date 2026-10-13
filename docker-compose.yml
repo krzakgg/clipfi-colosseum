@@ -1,5 +1,6 @@
 include:
   - tracking-service/docker-compose.yml
+  - auth-service/docker-compose.yml
 
 services:
   postgres_db:

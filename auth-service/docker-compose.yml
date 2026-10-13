@@ -1,0 +1,89 @@
+# Auth owns its database; other services join the jestr-services network
+# and call http://auth-api:8001.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: waggi_auth
+      POSTGRES_USER: waggi_auth
+      POSTGRES_PASSWORD: ${AUTH_POSTGRES_PASSWORD:?set AUTH_POSTGRES_PASSWORD in .env}
+    volumes:
+      - auth-postgres-data:/var/lib/postgresql/data
+    networks: [auth-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U waggi_auth -d waggi_auth"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${AUTH_REDIS_PASSWORD:?set AUTH_REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${AUTH_REDIS_PASSWORD}
+    volumes:
+      - auth-redis-data:/data
+    networks: [auth-data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://waggi_auth:${AUTH_POSTGRES_PASSWORD}@postgres:5432/waggi_auth
+    networks: [auth-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://waggi_auth:${AUTH_POSTGRES_PASSWORD}@postgres:5432/waggi_auth
+      REDIS_URL: redis://:${AUTH_REDIS_PASSWORD}@redis:6379/0
+      JWT_PRIVATE_KEY_PATH: /app/keys/auth_private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/auth_public.pem
+    volumes:
+      - ./keys:/app/keys:ro
+    networks: [auth-data, services]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/ready')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    # local only; in production the reverse proxy joins "edge" instead
+    ports:
+      - "127.0.0.1:8001:8001"
+
+networks:
+  auth-data:
+    internal: true
+  services:
+    name: jestr-services
+
+volumes:
+  auth-postgres-data:
+  auth-redis-data:
